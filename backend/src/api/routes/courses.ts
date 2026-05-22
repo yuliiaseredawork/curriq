@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
-import { getPlaylistVideos } from '../../youtube/playlist';
+import { startCourseIngestion } from '../../ingest/start-course-ingestion';
 
 const CreateCourseInput = z.object({
   playlistUrl: z.string().url(),
@@ -14,13 +14,16 @@ courses.post('/', async (c) => {
   const input = CreateCourseInput.parse(body);
 
   const courseId = randomUUID();
-  const videoIds = await getPlaylistVideos(input.playlistUrl);
+
+  const ingestion = await startCourseIngestion({
+    courseId,
+    playlistUrl: input.playlistUrl,
+  });
 
   return c.json({
     courseId,
-    status: 'CREATED',
+    status: 'INGESTION_STARTED',
     playlistUrl: input.playlistUrl,
-    videoIds,
-    next: 'fetch transcripts',
+    ingestion,
   });
 });

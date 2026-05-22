@@ -55,6 +55,12 @@ export class DataStack extends cdk.Stack {
 
     this.dbSecret = this.db.secret!;
 
+    this.db.connections.allowFrom(
+      ec2.Peer.ipv4(props.vpc.vpcCidrBlock),
+      ec2.Port.tcp(5432),
+      'Allow Postgres access from VPC',
+    );
+
     this.rawBucket = new s3.Bucket(this, 'Raw', {
       lifecycleRules: [{ expiration: cdk.Duration.days(90) }],
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,

@@ -27,6 +27,7 @@ new IngestStack(app, `Curriq-Ingest-${stage}`, {
   env,
   vpc: network.vpc,
   rawBucket: data.rawBucket,
+  processedBucket: data.processedBucket,
   db: data.db,
   dbSecret: data.dbSecret,
 });

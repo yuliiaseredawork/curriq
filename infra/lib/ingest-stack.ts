@@ -12,15 +12,38 @@ import * as lambdaNode from 'aws-cdk-lib/aws-lambda-nodejs';
 interface Props extends cdk.StackProps {
   vpc: ec2.Vpc;
   rawBucket: s3.Bucket;
+  processedBucket: s3.Bucket;
   db: rds.DatabaseInstance;
   dbSecret: sm.ISecret;
 }
 
 export class IngestStack extends cdk.Stack {
+  public readonly embedTranscriptFn: lambdaNode.NodejsFunction;
   public readonly processTranscriptFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
+
+    this.embedTranscriptFn = new lambdaNode.NodejsFunction(
+      this,
+      'EmbedTranscriptFn',
+      {
+        entry: path.join(__dirname, '../../backend/src/ingest/embed-transcript.ts'),
+        projectRoot: path.join(__dirname, '../..'),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        memorySize: 512,
+        timeout: cdk.Duration.seconds(120),
+        environment: {
+          RAW_BUCKET: props.rawBucket.bucketName,
+          PROCESSED_BUCKET: props.processedBucket.bucketName,
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+        },
+      },
+    );
+
+    props.rawBucket.grantRead(this.embedTranscriptFn);
+    props.processedBucket.grantWrite(this.embedTranscriptFn);
 
     this.processTranscriptFn = new lambdaNode.NodejsFunction(
       this,
@@ -37,13 +60,13 @@ export class IngestStack extends cdk.Stack {
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
         },
         environment: {
-          RAW_BUCKET: props.rawBucket.bucketName,
+          PROCESSED_BUCKET: props.processedBucket.bucketName,
           DB_SECRET_ARN: props.dbSecret.secretArn,
         },
       },
     );
 
-    props.rawBucket.grantRead(this.processTranscriptFn);
+    props.processedBucket.grantRead(this.processTranscriptFn);
     props.dbSecret.grantRead(this.processTranscriptFn);
   }
 }

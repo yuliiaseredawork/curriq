@@ -20,6 +20,7 @@ interface Props extends cdk.StackProps {
 export class IngestStack extends cdk.Stack {
   public readonly embedTranscriptFn: lambdaNode.NodejsFunction;
   public readonly processTranscriptFn: lambdaNode.NodejsFunction;
+  public readonly searchChunksFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -65,6 +66,24 @@ export class IngestStack extends cdk.Stack {
         },
       },
     );
+
+    this.searchChunksFn = new lambdaNode.NodejsFunction(this, 'SearchChunksFn', {
+      entry: path.join(__dirname, '../../backend/src/retrieval/search-chunks.ts'),
+      projectRoot: path.join(__dirname, '../..'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      vpc: props.vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+      },
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+      },
+    });
+
+    props.dbSecret.grantRead(this.searchChunksFn);
 
     props.processedBucket.grantRead(this.processTranscriptFn);
     props.dbSecret.grantRead(this.processTranscriptFn);

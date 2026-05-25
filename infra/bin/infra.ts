@@ -23,7 +23,7 @@ const data = new DataStack(app, `Curriq-Data-${stage}`, {
   vpc: network.vpc,
   bastion: network.bastion,
 });
-new IngestStack(app, `Curriq-Ingest-${stage}`, {
+const ingest = new IngestStack(app, `Curriq-Ingest-${stage}`, {
   env,
   vpc: network.vpc,
   rawBucket: data.rawBucket,
@@ -35,4 +35,5 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   env,
   rawBucket: data.rawBucket,
   dbSecret: data.dbSecret,
+  searchChunksFn: ingest.searchChunksFn,
 });

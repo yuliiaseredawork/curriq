@@ -13,6 +13,7 @@ import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 interface Props extends cdk.StackProps {
   rawBucket: s3.Bucket;
   dbSecret: sm.ISecret;
+  searchChunksFn: lambda.IFunction;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -35,11 +36,14 @@ export class ApiStack extends cdk.Stack {
         YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY ?? '',
         SEARCHAPI_API_KEY: process.env.SEARCHAPI_API_KEY ?? '',
         DB_SECRET_ARN: props.dbSecret.secretArn,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+        SEARCH_CHUNKS_FUNCTION_NAME: props.searchChunksFn.functionName,
       },
     });
 
     props.rawBucket.grantReadWrite(apiFn);
     props.dbSecret.grantRead(apiFn);
+    props.searchChunksFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {

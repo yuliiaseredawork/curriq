@@ -9,11 +9,15 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaNode from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as ddb from 'aws-cdk-lib/aws-dynamodb';
 
 interface Props extends cdk.StackProps {
   rawBucket: s3.Bucket;
+  processedBucket: s3.Bucket;
   dbSecret: sm.ISecret;
   searchChunksFn: lambda.IFunction;
+  progressTable: ddb.Table;
+  mistakesTable: ddb.Table;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -38,12 +42,19 @@ export class ApiStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
         OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
         SEARCH_CHUNKS_FUNCTION_NAME: props.searchChunksFn.functionName,
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+        PROCESSED_BUCKET: props.processedBucket.bucketName,
+        PROGRESS_TABLE: props.progressTable.tableName,
+        MISTAKES_TABLE: props.mistakesTable.tableName,
       },
     });
 
     props.rawBucket.grantReadWrite(apiFn);
     props.dbSecret.grantRead(apiFn);
     props.searchChunksFn.grantInvoke(apiFn);
+    props.processedBucket.grantReadWrite(apiFn);
+    props.progressTable.grantReadWriteData(apiFn);
+    props.mistakesTable.grantReadWriteData(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {

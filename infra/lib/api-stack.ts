@@ -18,6 +18,8 @@ interface Props extends cdk.StackProps {
   searchChunksFn: lambda.IFunction;
   progressTable: ddb.Table;
   mistakesTable: ddb.Table;
+  embedTranscriptFn: lambda.IFunction;
+  processTranscriptFn: lambda.IFunction;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -30,7 +32,7 @@ export class ApiStack extends cdk.Stack {
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       memorySize: 512,
-      timeout: cdk.Duration.seconds(90),
+      timeout: cdk.Duration.seconds(120),
       bundling: {
         externalModules: [],
       },
@@ -46,6 +48,8 @@ export class ApiStack extends cdk.Stack {
         PROCESSED_BUCKET: props.processedBucket.bucketName,
         PROGRESS_TABLE: props.progressTable.tableName,
         MISTAKES_TABLE: props.mistakesTable.tableName,
+        EMBED_TRANSCRIPT_FUNCTION_NAME: props.embedTranscriptFn.functionName,
+        PROCESS_TRANSCRIPT_FUNCTION_NAME: props.processTranscriptFn.functionName,
       },
     });
 
@@ -55,6 +59,8 @@ export class ApiStack extends cdk.Stack {
     props.processedBucket.grantReadWrite(apiFn);
     props.progressTable.grantReadWriteData(apiFn);
     props.mistakesTable.grantReadWriteData(apiFn);
+    props.embedTranscriptFn.grantInvoke(apiFn);
+    props.processTranscriptFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {
@@ -72,6 +78,22 @@ export class ApiStack extends cdk.Stack {
       path: '/{proxy+}',
       methods: [apigw.HttpMethod.ANY],
       integration: new integrations.HttpLambdaIntegration('ApiIntegration', apiFn),
+    });
+
+    httpApi.addRoutes({
+      path: '/',
+      methods: [apigw.HttpMethod.ANY],
+      integration: new integrations.HttpLambdaIntegration('RootApiIntegration', apiFn),
+    });
+
+    httpApi.addRoutes({
+      path: '/courses',
+      methods: [
+        apigw.HttpMethod.GET,
+        apigw.HttpMethod.POST,
+        apigw.HttpMethod.OPTIONS,
+      ],
+      integration: new integrations.HttpLambdaIntegration('CoursesIntegration', apiFn),
     });
 
     new cdk.CfnOutput(this, 'ApiUrl', {

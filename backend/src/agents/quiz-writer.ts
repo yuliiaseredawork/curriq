@@ -1,95 +1,90 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
-
-const QuizQuestionSchema = z.object({
+const QuestionSchema = z.object({
   id: z.string(),
-
   type: z.enum(['mcq', 'short']),
-
   question: z.string(),
-
   choices: z.array(z.string()).optional(),
-
   answer: z.string(),
-
   source_chunk_id: z.string(),
-
   source_quote: z.string(),
-
   difficulty: z.enum(['easy', 'medium', 'hard']),
-
   concept_tags: z.array(z.string()).min(1),
 });
 
-export const QuizSchema = z.object({
+const QuizSchema = z.object({
   chapter_id: z.string(),
-
-  questions: z
-    .array(QuizQuestionSchema)
-    .min(5)
-    .max(10),
+  chapter_title: z.string(),
+  questions: z.array(QuestionSchema).min(3).max(8),
 });
 
 export type Quiz = z.infer<typeof QuizSchema>;
 
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+});
+
 const SYSTEM = `
-You are an educational assessment generator.
+You are an expert educational assessment designer.
 
 Return ONLY valid JSON.
+Do not use markdown.
+Do not include explanations outside JSON.
 
-Every question MUST:
-- be answerable from the provided chunks
-- include source_chunk_id
-- include source_quote copied from the source chunk
-- avoid hallucinations
+Every question must be grounded in the provided chunks.
+Every question must include:
+- source_chunk_id
+- source_quote copied from the chunk text
 `;
 
-type Chunk = {
-  id: string;
-  text: string;
-};
-
-export async function generateQuiz(
-  chapterTitle: string,
-  chunks: Chunk[],
-): Promise<Quiz> {
-  const chunkText = chunks
+function buildPrompt(input: {
+  chapterId: string;
+  chapterTitle: string;
+  chapterSummary: string;
+  learningObjectives: string[];
+  chunks: Array<{
+    id: string | number;
+    video_id: string;
+    text: string;
+  }>;
+}) {
+  const chunksText = input.chunks
     .map(
       (c) => `
-[CHUNK ${c.id}]
+<chunk id="${c.id}" video_id="${c.video_id}">
 ${c.text}
-`,
+</chunk>`,
     )
     .join('\n');
 
-  const prompt = `
+  return `
 <task>
-Generate a quiz for this chapter.
-Mix MCQ and short-answer questions.
+Generate a quiz for this course chapter.
+Mix multiple-choice and short-answer questions.
 </task>
 
 <chapter>
-${chapterTitle}
+id: ${input.chapterId}
+title: ${input.chapterTitle}
+summary: ${input.chapterSummary}
+learning_objectives:
+${input.learningObjectives.map((o) => `- ${o}`).join('\n')}
 </chapter>
 
 <rules>
-- Generate 5-10 questions
-- Include easy/medium/hard questions
-- Every question MUST cite a chunk
-- source_quote must be copied from the chunk
+- Generate 3-8 questions.
+- Include at least 1 multiple-choice question.
+- Include at least 1 short-answer question.
+- Every question must be answerable from the provided chunks.
+- source_quote must be an exact substring or very close quote from a chunk.
+- Do not invent facts not present in the chunks.
 </rules>
-
-<chunks>
-${chunkText}
-</chunks>
 
 <output_schema>
 {
   "chapter_id": "string",
+  "chapter_title": "string",
   "questions": [
     {
       "id": "string",
@@ -105,22 +100,34 @@ ${chunkText}
   ]
 }
 </output_schema>
-`;
 
+<chunks>
+${chunksText}
+</chunks>
+`;
+}
+
+export async function generateQuiz(input: {
+  chapterId: string;
+  chapterTitle: string;
+  chapterSummary: string;
+  learningObjectives: string[];
+  chunks: Array<{
+    id: string | number;
+    video_id: string;
+    text: string;
+  }>;
+}): Promise<Quiz> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
-
-      temperature: 0.3,
-
+      temperature: 0.2,
       system: SYSTEM,
-
       messages: [
         {
           role: 'user',
-          content: prompt,
+          content: buildPrompt(input),
         },
       ],
     });
@@ -133,9 +140,7 @@ ${chunkText}
     const jsonStart = text.indexOf('{');
     const jsonEnd = text.lastIndexOf('}');
 
-    if (jsonStart === -1 || jsonEnd === -1) {
-      continue;
-    }
+    if (jsonStart === -1 || jsonEnd === -1) continue;
 
     try {
       return QuizSchema.parse(
@@ -146,5 +151,5 @@ ${chunkText}
     }
   }
 
-  throw new Error('Quiz generation failed');
+  throw new Error('Failed to generate valid quiz');
 }

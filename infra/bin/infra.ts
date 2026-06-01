@@ -39,4 +39,6 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   processedBucket: data.processedBucket,
   progressTable: data.progressTable,
   mistakesTable: data.mistakesTable,
+  embedTranscriptFn: ingest.embedTranscriptFn,
+  processTranscriptFn: ingest.processTranscriptFn,
 });

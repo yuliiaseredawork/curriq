@@ -20,6 +20,7 @@ interface Props extends cdk.StackProps {
   mistakesTable: ddb.Table;
   embedTranscriptFn: lambda.IFunction;
   processTranscriptFn: lambda.IFunction;
+  courseMetadataFn: lambda.IFunction;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -50,6 +51,7 @@ export class ApiStack extends cdk.Stack {
         MISTAKES_TABLE: props.mistakesTable.tableName,
         EMBED_TRANSCRIPT_FUNCTION_NAME: props.embedTranscriptFn.functionName,
         PROCESS_TRANSCRIPT_FUNCTION_NAME: props.processTranscriptFn.functionName,
+        COURSE_METADATA_FUNCTION_NAME: props.courseMetadataFn.functionName,
       },
     });
 
@@ -61,6 +63,7 @@ export class ApiStack extends cdk.Stack {
     props.mistakesTable.grantReadWriteData(apiFn);
     props.embedTranscriptFn.grantInvoke(apiFn);
     props.processTranscriptFn.grantInvoke(apiFn);
+    props.courseMetadataFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {

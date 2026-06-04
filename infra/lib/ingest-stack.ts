@@ -21,6 +21,7 @@ export class IngestStack extends cdk.Stack {
   public readonly embedTranscriptFn: lambdaNode.NodejsFunction;
   public readonly processTranscriptFn: lambdaNode.NodejsFunction;
   public readonly searchChunksFn: lambdaNode.NodejsFunction;
+  public readonly courseMetadataFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -82,6 +83,24 @@ export class IngestStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
       },
     });
+
+    this.courseMetadataFn = new lambdaNode.NodejsFunction(this, 'CourseMetadataFn', {
+      entry: path.join(__dirname, '../../backend/src/courses/course-metadata.ts'),
+      projectRoot: path.join(__dirname, '../..'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      vpc: props.vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+      },
+      environment: {
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+      },
+    });
+
+    props.dbSecret.grantRead(this.courseMetadataFn);
 
     props.dbSecret.grantRead(this.searchChunksFn);
 

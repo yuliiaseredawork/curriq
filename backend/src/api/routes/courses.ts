@@ -5,6 +5,7 @@ import { startCourseIngestion } from '../../ingest/start-course-ingestion';
 import { loadOutline } from '../../storage/course-artifacts';
 import { loadQuiz } from '../../storage/course-artifacts';
 import { saveCourseManifest } from '../../storage/course-artifacts';
+import { callCourseMetadata } from '../../courses/course-metadata-client';
 
 const CreateCourseInput = z.object({
   playlistUrl: z.string().url(),
@@ -21,6 +22,15 @@ courses.post('/', async (c) => {
   const ingestion = await startCourseIngestion({
     courseId,
     playlistUrl: input.playlistUrl,
+  });
+
+  await callCourseMetadata({
+    action: 'upsert',
+    courseId,
+    title: 'Untitled course',
+    playlistUrl: input.playlistUrl,
+    playlistId: ingestion.playlistId,
+    status: 'CREATED',
   });
 
   const manifest = {
@@ -49,21 +59,35 @@ courses.post('/', async (c) => {
   });
 });
 
+courses.get('/', async (c) => {
+  const result = await callCourseMetadata({
+    action: 'list',
+  });
+
+  return c.json(result);
+});
+
 courses.get('/:courseId', async (c) => {
   const courseId = c.req.param('courseId');
 
   try {
+    const metadataResult = await callCourseMetadata({
+      action: 'get',
+      courseId,
+    });
+
     const outline = await loadOutline(courseId);
 
     return c.json({
       courseId,
+      metadata: metadataResult.course,
       outline,
     });
-  } catch (e: any) {
+  } catch {
     return c.json(
       {
         error: 'COURSE_NOT_FOUND',
-        message: `No saved outline found for course ${courseId}`,
+        message: `No saved course found for ${courseId}`,
       },
       404,
     );

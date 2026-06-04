@@ -5,6 +5,7 @@ import {
   generateQuiz,
   getNextQuestion,
   submitAnswer,
+  getQuiz,
 } from '@/lib/api';
 
 const USER_ID = 'demo-user';
@@ -50,10 +51,19 @@ export default function ChapterPage({
     setError('');
 
     try {
-      await generateQuiz(courseId, chapterId);
+      try {
+        await getQuiz(courseId, chapterId);
+      } catch {
+        await generateQuiz(courseId, chapterId);
+      }
+
       await loadNext();
     } catch (e: any) {
-      setError(e.message ?? 'Failed to start chapter');
+      setError(
+        e.message?.includes('Service Unavailable')
+          ? 'Quiz generation is taking too long. Please wait a bit and try opening this chapter again.'
+          : e.message ?? 'Failed to start chapter',
+      );
       setLoading(false);
     }
   }
@@ -88,8 +98,8 @@ export default function ChapterPage({
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-3xl mx-auto space-y-6">
-        <a href="/" className="text-blue-400">
-          ← Back
+        <a href={`/courses/${courseId}`} className="text-blue-400">
+          ← Back to course
         </a>
 
         <h1 className="text-3xl font-bold">Study Chapter</h1>

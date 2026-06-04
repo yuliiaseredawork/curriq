@@ -16,7 +16,7 @@ const QuestionSchema = z.object({
 const QuizSchema = z.object({
   chapter_id: z.string(),
   chapter_title: z.string(),
-  questions: z.array(QuestionSchema).min(3).max(8),
+  questions: z.array(QuestionSchema).min(3).max(5),
 });
 
 export type Quiz = z.infer<typeof QuizSchema>;
@@ -73,7 +73,7 @@ ${input.learningObjectives.map((o) => `- ${o}`).join('\n')}
 </chapter>
 
 <rules>
-- Generate 3-8 questions.
+- Generate 3-5 questions.
 - Include at least 1 multiple-choice question.
 - Include at least 1 short-answer question.
 - Every question must be answerable from the provided chunks.

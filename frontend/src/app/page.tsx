@@ -1,40 +1,68 @@
 'use client';
 
-import { useState } from 'react';
-import { createCourse, generateOutline, processCourse } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import {
+  createCourse,
+  generateOutline,
+  listCourses,
+  processCourse,
+} from '@/lib/api';
 
 export default function Home() {
   const [playlistUrl, setPlaylistUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [course, setCourse] = useState<any>(null);
+  const [loadingCourses, setLoadingCourses] = useState(true);
   const [error, setError] = useState('');
+  const [courses, setCourses] = useState<any[]>([]);
+
+  async function loadCourses() {
+    setLoadingCourses(true);
+
+    try {
+      const result = await listCourses();
+      setCourses(result.courses ?? []);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to load courses');
+    } finally {
+      setLoadingCourses(false);
+    }
+  }
 
   async function handleGenerate() {
     setLoading(true);
     setError('');
-    setCourse(null);
 
     try {
       const created = await createCourse(playlistUrl);
+
       await processCourse(created.courseId);
-      const outlined = await generateOutline(created.courseId);
-      
-      setCourse({
-        courseId: created.courseId,
-        ...outlined,
-      });
+
+      await generateOutline(created.courseId);
+
+      setPlaylistUrl('');
+
+      await loadCourses();
     } catch (e: any) {
-      setError(e.message ?? 'Something went wrong');
+      setError(
+        e.message?.includes('Service Unavailable')
+          ? 'Course was processed, but one of the AI generation steps temporarily failed. Please try again.'
+          : e.message ?? 'Something went wrong',
+      );
     } finally {
       setLoading(false);
     }
   }
 
+  useEffect(() => {
+    loadCourses();
+  }, []);
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-3xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-10">
         <section className="space-y-4">
           <h1 className="text-4xl font-bold">Curriq</h1>
+
           <p className="text-gray-300">
             Turn a YouTube playlist into an adaptive AI course.
           </p>
@@ -56,6 +84,12 @@ export default function Home() {
             </button>
           </div>
 
+          {loading && (
+            <p className="text-sm text-gray-400">
+              Creating course, processing transcripts, generating outline...
+            </p>
+          )}
+
           {error && (
             <div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">
               {error}
@@ -63,36 +97,55 @@ export default function Home() {
           )}
         </section>
 
-        {course?.outline && (
-          <section className="space-y-4">
-            <h2 className="text-2xl font-semibold">{course.outline.title}</h2>
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">My Courses</h2>
 
-            <div className="space-y-4">
-              {course.outline.chapters.map((chapter: any) => (
-                <div
-                  key={chapter.id}
-                  className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3"
-                >
-                  <h3 className="text-xl font-semibold">{chapter.title}</h3>
-                  <p className="text-gray-300">{chapter.summary}</p>
+            <button
+              className="text-sm text-blue-400 hover:text-blue-300"
+              onClick={loadCourses}
+              disabled={loadingCourses}
+            >
+              Refresh
+            </button>
+          </div>
 
-                  <ul className="list-disc list-inside text-gray-300">
-                    {chapter.learning_objectives.map((objective: string) => (
-                      <li key={objective}>{objective}</li>
-                    ))}
-                  </ul>
+          {loadingCourses && (
+            <p className="text-gray-400">Loading courses...</p>
+          )}
 
-                  <a
-                    className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
-                    href={`/courses/${course.courseId}/chapters/${chapter.id}`}
-                  >
-                    Study chapter
-                  </a>
-                </div>
-              ))}
+          {!loadingCourses && courses.length === 0 && (
+            <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-gray-300">
+              No courses yet. Paste a YouTube playlist above to create your first course.
             </div>
-          </section>
-        )}
+          )}
+
+          <div className="space-y-3">
+            {courses.map((course) => (
+              <a
+                key={course.courseId}
+                href={`/courses/${course.courseId}`}
+                className="block rounded-xl border border-gray-800 bg-gray-900 p-5 hover:bg-gray-800 transition"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-semibold">
+                      {course.title ?? 'Untitled course'}
+                    </h3>
+
+                    <p className="text-sm text-gray-400">
+                      {course.playlistUrl}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
+                    {course.status}
+                  </span>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
       </div>
     </main>
   );

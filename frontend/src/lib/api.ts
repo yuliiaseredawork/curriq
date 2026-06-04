@@ -18,7 +18,7 @@ export async function generateOutline(courseId: string) {
   const res = await fetch(`${API_URL}/outline`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ courseId, limit: 10 }),
+    body: JSON.stringify({ courseId, limit: 5 }),
   });
 
   if (!res.ok) {
@@ -105,6 +105,16 @@ export async function processCourse(courseId: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
+export async function listCourses() {
+  const res = await fetch(`${API_URL}/courses`);
 
   if (!res.ok) {
     throw new Error(await res.text());

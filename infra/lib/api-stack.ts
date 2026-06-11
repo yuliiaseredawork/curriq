@@ -21,6 +21,7 @@ interface Props extends cdk.StackProps {
   embedTranscriptFn: lambda.IFunction;
   processTranscriptFn: lambda.IFunction;
   courseMetadataFn: lambda.IFunction;
+  generateCourseFn: lambda.IFunction;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -52,6 +53,7 @@ export class ApiStack extends cdk.Stack {
         EMBED_TRANSCRIPT_FUNCTION_NAME: props.embedTranscriptFn.functionName,
         PROCESS_TRANSCRIPT_FUNCTION_NAME: props.processTranscriptFn.functionName,
         COURSE_METADATA_FUNCTION_NAME: props.courseMetadataFn.functionName,
+        GENERATE_COURSE_FUNCTION_NAME: props.generateCourseFn.functionName,
       },
     });
 
@@ -64,6 +66,7 @@ export class ApiStack extends cdk.Stack {
     props.embedTranscriptFn.grantInvoke(apiFn);
     props.processTranscriptFn.grantInvoke(apiFn);
     props.courseMetadataFn.grantInvoke(apiFn);
+    props.generateCourseFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {

@@ -22,6 +22,7 @@ export class IngestStack extends cdk.Stack {
   public readonly processTranscriptFn: lambdaNode.NodejsFunction;
   public readonly searchChunksFn: lambdaNode.NodejsFunction;
   public readonly courseMetadataFn: lambdaNode.NodejsFunction;
+  public readonly generateCourseFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -99,6 +100,35 @@ export class IngestStack extends cdk.Stack {
         DB_SECRET_ARN: props.dbSecret.secretArn,
       },
     });
+
+    this.generateCourseFn = new lambdaNode.NodejsFunction(this, 'GenerateCourseFn', {
+      entry: path.join(__dirname, '../../backend/src/courses/generate-course.ts'),
+      projectRoot: path.join(__dirname, '../..'),
+      handler: 'handler',
+      runtime: lambda.Runtime.NODEJS_20_X,
+      memorySize: 1024,
+      timeout: cdk.Duration.minutes(10),
+      environment: {
+        RAW_BUCKET: props.rawBucket.bucketName,
+        PROCESSED_BUCKET: props.processedBucket.bucketName,
+        YOUTUBE_API_KEY: process.env.YOUTUBE_API_KEY ?? '',
+        SEARCHAPI_API_KEY: process.env.SEARCHAPI_API_KEY ?? '',
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+        SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
+        EMBED_TRANSCRIPT_FUNCTION_NAME: this.embedTranscriptFn.functionName,
+        PROCESS_TRANSCRIPT_FUNCTION_NAME: this.processTranscriptFn.functionName,
+        COURSE_METADATA_FUNCTION_NAME: this.courseMetadataFn.functionName,
+      },
+    });
+
+    props.rawBucket.grantReadWrite(this.generateCourseFn);
+    props.processedBucket.grantReadWrite(this.generateCourseFn);
+
+    this.searchChunksFn.grantInvoke(this.generateCourseFn);
+    this.embedTranscriptFn.grantInvoke(this.generateCourseFn);
+    this.processTranscriptFn.grantInvoke(this.generateCourseFn);
+    this.courseMetadataFn.grantInvoke(this.generateCourseFn);
 
     props.dbSecret.grantRead(this.courseMetadataFn);
 

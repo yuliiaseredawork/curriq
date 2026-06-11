@@ -7,6 +7,7 @@ import { quizzes } from './routes/quizzes';
 import { study } from './routes/study';
 import { cors } from 'hono/cors';
 import { courseProcessing } from './routes/course-processing';
+import { practice } from './routes/practice';
 
 const app = new Hono();
 
@@ -29,5 +30,6 @@ app.route('/outline', outline);
 app.route('/quizzes', quizzes);
 app.route('/study', study);
 app.route('/courses', courseProcessing);
+app.route('/practice', practice);
 
 export const handler = handle(app);

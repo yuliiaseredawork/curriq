@@ -30,12 +30,21 @@ async function createClient() {
   return client;
 }
 
+type CourseStatus =
+  | 'CREATED'
+  | 'INGESTING'
+  | 'PROCESSING'
+  | 'OUTLINING'
+  | 'READY'
+  | 'FAILED';
+
 export async function upsertCourse(input: {
   courseId: string;
   title: string;
   playlistUrl: string;
   playlistId?: string;
-  status: 'CREATED' | 'PROCESSING' | 'READY' | 'FAILED';
+  status: CourseStatus;
+  errorMessage?: string | null;
 }) {
   const client = await createClient();
 
@@ -48,16 +57,18 @@ export async function upsertCourse(input: {
         playlist_url,
         playlist_id,
         status,
+        error_message,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, now(), now())
+      VALUES ($1, $2, $3, $4, $5, $6, now(), now())
       ON CONFLICT (id)
       DO UPDATE SET
         title = EXCLUDED.title,
         playlist_url = EXCLUDED.playlist_url,
         playlist_id = EXCLUDED.playlist_id,
         status = EXCLUDED.status,
+        error_message = EXCLUDED.error_message,
         updated_at = now()
       `,
       [
@@ -66,6 +77,7 @@ export async function upsertCourse(input: {
         input.playlistUrl,
         input.playlistId ?? null,
         input.status,
+        input.errorMessage ?? null,
       ],
     );
   } finally {
@@ -75,7 +87,8 @@ export async function upsertCourse(input: {
 
 export async function updateCourseStatus(input: {
   courseId: string;
-  status: 'CREATED' | 'PROCESSING' | 'READY' | 'FAILED';
+  status: CourseStatus;
+  errorMessage?: string | null;
 }) {
   const client = await createClient();
 
@@ -84,10 +97,11 @@ export async function updateCourseStatus(input: {
       `
       UPDATE public.courses
       SET status = $2,
+          error_message = $3,
           updated_at = now()
       WHERE id = $1
       `,
-      [input.courseId, input.status],
+      [input.courseId, input.status, input.errorMessage ?? null],
     );
   } finally {
     await client.end();
@@ -107,7 +121,8 @@ export async function listCourses() {
         playlist_id,
         status,
         created_at,
-        updated_at
+        updated_at,
+        errorMessage
       FROM public.courses
       ORDER BY created_at DESC
       LIMIT 50
@@ -122,6 +137,7 @@ export async function listCourses() {
       status: r.status,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      errorMessage: r.error_message,
     }));
   } finally {
     await client.end();

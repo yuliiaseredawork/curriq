@@ -1,5 +1,15 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
+export async function getCourseStatus(courseId: string) {
+  const res = await fetch(`${API_URL}/courses/${courseId}/status`);
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
 export async function createCourse(playlistUrl: string) {
   const res = await fetch(`${API_URL}/courses`, {
     method: 'POST',
@@ -115,6 +125,74 @@ export async function processCourse(courseId: string) {
 
 export async function listCourses() {
   const res = await fetch(`${API_URL}/courses`);
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
+export async function getCourseProgress(courseId: string, userId = 'demo-user') {
+  const res = await fetch(
+    `${API_URL}/courses/${courseId}/progress?userId=${encodeURIComponent(userId)}`,
+  );
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
+export async function getResume(courseId: string, userId = 'demo-user') {
+  const res = await fetch(
+    `${API_URL}/courses/${courseId}/resume?userId=${encodeURIComponent(userId)}`,
+  );
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
+export async function getWeakConcepts(courseId: string, userId = 'demo-user') {
+  const res = await fetch(
+    `${API_URL}/courses/${courseId}/weak-concepts?userId=${encodeURIComponent(userId)}`,
+  );
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
+export async function generatePractice(input: {
+  courseId: string;
+  concept: string;
+  limit?: number;
+}) {
+  const res = await fetch(`${API_URL}/practice`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      courseId: input.courseId,
+      concept: input.concept,
+      limit: input.limit ?? 5,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+
+  return res.json();
+}
+
+export async function getPractice(courseId: string, practiceId: string) {
+  const res = await fetch(`${API_URL}/practice/${courseId}/${practiceId}`);
 
   if (!res.ok) {
     throw new Error(await res.text());

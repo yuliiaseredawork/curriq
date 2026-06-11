@@ -42,4 +42,5 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   embedTranscriptFn: ingest.embedTranscriptFn,
   processTranscriptFn: ingest.processTranscriptFn,
   courseMetadataFn: ingest.courseMetadataFn,
+  generateCourseFn: ingest.generateCourseFn,
 });

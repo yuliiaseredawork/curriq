@@ -1,62 +1,66 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
-import { startCourseIngestion } from '../../ingest/start-course-ingestion';
-import { loadOutline } from '../../storage/course-artifacts';
-import { loadQuiz } from '../../storage/course-artifacts';
-import { saveCourseManifest } from '../../storage/course-artifacts';
+import {
+  LambdaClient,
+  InvocationType,
+  InvokeCommand,
+} from '@aws-sdk/client-lambda';
+
+import {
+  loadOutline,
+  loadQuiz,
+} from '../../storage/course-artifacts';
+
 import { callCourseMetadata } from '../../courses/course-metadata-client';
 
-const CreateCourseInput = z.object({
+import {
+  getCourseProgress,
+  getCourseMistakes,
+} from '../../storage/study-state';
+
+export const courses = new Hono();
+const lambda = new LambdaClient({});
+
+const Input = z.object({
   playlistUrl: z.string().url(),
 });
 
-export const courses = new Hono();
-
 courses.post('/', async (c) => {
   const body = await c.req.json();
-  const input = CreateCourseInput.parse(body);
+  const input = Input.parse(body);
 
   const courseId = randomUUID();
-
-  const ingestion = await startCourseIngestion({
-    courseId,
-    playlistUrl: input.playlistUrl,
-  });
 
   await callCourseMetadata({
     action: 'upsert',
     courseId,
-    title: 'Untitled course',
+    title: 'Generating course...',
     playlistUrl: input.playlistUrl,
-    playlistId: ingestion.playlistId,
     status: 'CREATED',
   });
 
-  const manifest = {
-    courseId,
-    playlistUrl: input.playlistUrl,
-    playlistId: ingestion.playlistId,
-    videoIds: ingestion.videoIds,
-    transcripts: ingestion.results
-      .filter((r: any) => r.status === 'OK')
-      .map((r: any) => ({
-        videoId: r.videoId,
-        key: r.key,
-        segmentCount: r.segmentCount,
-      })),
-    createdAt: new Date().toISOString(),
-  };
+  await lambda.send(
+    new InvokeCommand({
+      FunctionName: process.env.GENERATE_COURSE_FUNCTION_NAME!,
+      InvocationType: InvocationType.Event,
+      Payload: Buffer.from(
+        JSON.stringify({
+          courseId,
+          playlistUrl: input.playlistUrl,
+        }),
+      ),
+    }),
+  );
 
-  const savedManifest = await saveCourseManifest(courseId, manifest);
-
-  return c.json({
-    courseId,
-    status: 'INGESTION_STARTED',
-    playlistUrl: input.playlistUrl,
-    ingestion,
-    manifest: savedManifest,
-  });
+  return c.json(
+    {
+      courseId,
+      status: 'PROCESSING',
+      playlistUrl: input.playlistUrl,
+    },
+    202,
+  );
 });
 
 courses.get('/', async (c) => {
@@ -65,6 +69,234 @@ courses.get('/', async (c) => {
   });
 
   return c.json(result);
+});
+
+courses.get('/:courseId/status', async (c) => {
+  const courseId = c.req.param('courseId');
+
+  const result = await callCourseMetadata({
+    action: 'get',
+    courseId,
+  });
+
+  if (!result.course) {
+    return c.json(
+      {
+        error: 'COURSE_NOT_FOUND',
+      },
+      404,
+    );
+  }
+
+  return c.json({
+    courseId,
+    status: result.course.status,
+    title: result.course.title,
+    errorMessage: result.course.errorMessage,
+    updatedAt: result.course.updatedAt,
+  });
+});
+
+courses.get('/:courseId/weak-concepts', async (c) => {
+  const courseId = c.req.param('courseId');
+  const userId = c.req.query('userId') ?? 'demo-user';
+
+  try {
+    const mistakes = await getCourseMistakes({
+      userId,
+      courseId,
+    });
+
+    const counts = new Map<string, number>();
+
+    for (const mistake of mistakes) {
+      const tags = mistake.conceptTags ?? [];
+
+      for (const tag of tags) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+
+    const weakConcepts = Array.from(counts.entries())
+      .map(([concept, mistakeCount]) => ({
+        concept,
+        mistakeCount,
+      }))
+      .sort((a, b) => b.mistakeCount - a.mistakeCount)
+      .slice(0, 5);
+
+    return c.json({
+      courseId,
+      userId,
+      weakConcepts,
+    });
+  } catch (e: any) {
+    return c.json(
+      {
+        error: 'WEAK_CONCEPTS_NOT_AVAILABLE',
+        message: e.message ?? 'Could not load weak concepts.',
+      },
+      404,
+    );
+  }
+});
+
+courses.get('/:courseId/resume', async (c) => {
+  const courseId = c.req.param('courseId');
+  const userId = c.req.query('userId') ?? 'demo-user';
+
+  try {
+    const outline = await loadOutline(courseId);
+
+    const progressItems = await getCourseProgress({
+      userId,
+      courseId,
+    });
+
+    const answeredByChapter = new Map<string, Set<string>>();
+
+    for (const item of progressItems) {
+      if (!answeredByChapter.has(item.chapterId)) {
+        answeredByChapter.set(item.chapterId, new Set());
+      }
+
+      answeredByChapter.get(item.chapterId)!.add(item.questionId);
+    }
+
+    for (const chapter of outline.chapters) {
+      let quiz;
+
+      try {
+        quiz = await loadQuiz(courseId, chapter.id);
+      } catch {
+        return c.json({
+          status: 'QUIZ_NOT_READY',
+          courseId,
+          chapterId: chapter.id,
+          message: 'Quiz is not generated for the next chapter yet.',
+        });
+      }
+
+      const answeredQuestions =
+        answeredByChapter.get(chapter.id) ?? new Set<string>();
+
+      const nextQuestion = quiz.questions.find(
+        (q: any) => !answeredQuestions.has(q.id),
+      );
+
+      if (nextQuestion) {
+        return c.json({
+          status: 'CONTINUE',
+          courseId,
+          chapterId: chapter.id,
+          questionId: nextQuestion.id,
+          answeredQuestions: answeredQuestions.size,
+          totalQuestions: quiz.questions.length,
+        });
+      }
+    }
+
+    return c.json({
+      status: 'COMPLETED',
+      courseId,
+      message: 'All generated quizzes are completed.',
+    });
+  } catch (e: any) {
+    return c.json(
+      {
+        error: 'RESUME_NOT_AVAILABLE',
+        message: e.message ?? 'Could not calculate resume state.',
+      },
+      404,
+    );
+  }
+});
+
+courses.get('/:courseId/progress', async (c) => {
+  const courseId = c.req.param('courseId');
+  const userId = c.req.query('userId') ?? 'demo-user';
+
+  try {
+    const course = await loadOutline(courseId);
+    const progressItems = await getCourseProgress({
+      userId,
+      courseId,
+    });
+
+    const answeredByChapter = new Map<string, Set<string>>();
+
+    for (const item of progressItems) {
+      if (!answeredByChapter.has(item.chapterId)) {
+        answeredByChapter.set(item.chapterId, new Set());
+      }
+
+      answeredByChapter.get(item.chapterId)!.add(item.questionId);
+    }
+
+    const chapters = [];
+
+    let totalQuestions = 0;
+    let answeredQuestions = 0;
+
+    for (const chapter of course.chapters) {
+      let quizQuestionsCount = 0;
+
+      try {
+        const quiz = await loadQuiz(courseId, chapter.id);
+        quizQuestionsCount = quiz.questions?.length ?? 0;
+      } catch {
+        quizQuestionsCount = 0;
+      }
+
+      const answeredCount = answeredByChapter.get(chapter.id)?.size ?? 0;
+
+      totalQuestions += quizQuestionsCount;
+      answeredQuestions += answeredCount;
+
+      const completionPercent =
+        quizQuestionsCount > 0
+          ? Math.round((answeredCount / quizQuestionsCount) * 100)
+          : 0;
+
+      chapters.push({
+        chapterId: chapter.id,
+        title: chapter.title,
+        answeredQuestions: answeredCount,
+        totalQuestions: quizQuestionsCount,
+        completionPercent,
+        status:
+          quizQuestionsCount === 0
+            ? 'NOT_STARTED'
+            : answeredCount >= quizQuestionsCount
+              ? 'COMPLETED'
+              : answeredCount > 0
+                ? 'IN_PROGRESS'
+                : 'NOT_STARTED',
+      });
+    }
+
+    const completionPercent =
+      totalQuestions > 0
+        ? Math.round((answeredQuestions / totalQuestions) * 100)
+        : 0;
+
+    return c.json({
+      courseId,
+      userId,
+      answeredQuestions,
+      totalQuestions,
+      completionPercent,
+      chapters,
+    });
+  } catch (e: any) {
+    return c.json(
+      {
+        error: 'PROGRESS_NOT_AVAILABLE',
+        message: e.message ?? 'Could not load course progress.',
+      },
+      404,
+    );
+  }
 });
 
 courses.get('/:courseId', async (c) => {

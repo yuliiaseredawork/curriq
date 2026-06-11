@@ -5,7 +5,13 @@ import {
   upsertCourse,
 } from '../storage/courses-repository';
 
-type CourseStatus = 'CREATED' | 'PROCESSING' | 'READY' | 'FAILED';
+type CourseStatus =
+  | 'CREATED'
+  | 'INGESTING'
+  | 'PROCESSING'
+  | 'OUTLINING'
+  | 'READY'
+  | 'FAILED';
 
 type Event =
   | {
@@ -15,11 +21,13 @@ type Event =
       playlistUrl: string;
       playlistId?: string;
       status: CourseStatus;
+      errorMessage?: string | null;
     }
   | {
       action: 'updateStatus';
       courseId: string;
       status: CourseStatus;
+      errorMessage?: string | null;
     }
   | {
       action: 'list';
@@ -43,8 +51,9 @@ export const handler = async (event: Event) => {
     await updateCourseStatus({
       courseId: event.courseId,
       status: event.status,
+      errorMessage: event.errorMessage ?? null,
     });
-
+    
     return {
       status: 'OK',
       courseId: event.courseId,

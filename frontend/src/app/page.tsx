@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import {
   createCourse,
-  generateOutline,
   listCourses,
-  processCourse,
+  getCourseStatus,
 } from '@/lib/api';
 
 export default function Home() {
@@ -28,18 +27,35 @@ export default function Home() {
     }
   }
 
+  async function waitForCourseReady(courseId: string) {
+    const maxAttempts = 60;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const status = await getCourseStatus(courseId);
+
+      if (status.status === 'READY') {
+        return;
+      }
+
+      if (status.status === 'FAILED') {
+        throw new Error(status.errorMessage ?? 'Course generation failed');
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+
+    throw new Error('Course generation timed out');
+  }
+
   async function handleGenerate() {
     setLoading(true);
     setError('');
 
     try {
       const created = await createCourse(playlistUrl);
-
-      await processCourse(created.courseId);
-
-      await generateOutline(created.courseId);
-
       setPlaylistUrl('');
+
+      await waitForCourseReady(created.courseId);
 
       await loadCourses();
     } catch (e: any) {
@@ -86,7 +102,7 @@ export default function Home() {
 
           {loading && (
             <p className="text-sm text-gray-400">
-              Creating course, processing transcripts, generating outline...
+              Generating course in the background. This may take a minute...
             </p>
           )}
 

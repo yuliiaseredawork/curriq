@@ -84,3 +84,38 @@ export async function getChapterProgress(input: {
 
   return result.Items ?? [];
 }
+export async function getCourseProgress(input: {
+  userId: string;
+  courseId: string;
+}) {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: process.env.PROGRESS_TABLE!,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': `USER#${input.userId}`,
+        ':prefix': `COURSE#${input.courseId}#`,
+      },
+    }),
+  );
+
+  return result.Items ?? [];
+}
+
+export async function getCourseMistakes(input: {
+  userId: string;
+  courseId: string;
+}) {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: process.env.MISTAKES_TABLE!,
+      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': `USER#${input.userId}`,
+        ':prefix': `COURSE#${input.courseId}#`,
+      },
+    }),
+  );
+
+  return result.Items ?? [];
+}

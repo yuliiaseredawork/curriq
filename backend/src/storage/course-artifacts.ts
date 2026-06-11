@@ -104,3 +104,39 @@ export async function loadCourseManifest(courseId: string) {
 
   return JSON.parse(await obj.Body!.transformToString());
 }
+
+export function practiceKey(courseId: string, practiceId: string) {
+  return `courses/${courseId}/practice/${practiceId}.json`;
+}
+
+export async function savePractice(
+  courseId: string,
+  practiceId: string,
+  practice: unknown,
+) {
+  const key = practiceKey(courseId, practiceId);
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: process.env.PROCESSED_BUCKET!,
+      Key: key,
+      Body: JSON.stringify(practice, null, 2),
+      ContentType: 'application/json',
+    }),
+  );
+
+  return { key };
+}
+
+export async function loadPractice(courseId: string, practiceId: string) {
+  const key = practiceKey(courseId, practiceId);
+
+  const obj = await s3.send(
+    new GetObjectCommand({
+      Bucket: process.env.PROCESSED_BUCKET!,
+      Key: key,
+    }),
+  );
+
+  return JSON.parse(await obj.Body!.transformToString());
+}

@@ -8,10 +8,10 @@ import {
   saveMistake,
   getChapterProgress,
 } from '../../storage/study-state';
-import { getChapterProgress } from '../../storage/study-state';
+import { getCurrentUserId } from '../../auth/current-user';
+import { callCourseMetadata } from '../../courses/course-metadata-client';
 
 const AnswerInput = z.object({
-  userId: z.string().default('demo-user'),
   courseId: z.string(),
   chapterId: z.string(),
   questionId: z.string(),
@@ -19,7 +19,6 @@ const AnswerInput = z.object({
 });
 
 const NextInput = z.object({
-  userId: z.string().default('demo-user'),
   courseId: z.string(),
   chapterId: z.string(),
 });
@@ -29,6 +28,24 @@ export const study = new Hono();
 study.post('/answer', async (c) => {
   const body = await c.req.json();
   const input = AnswerInput.parse(body);
+
+  const userId = await getCurrentUserId(c);
+
+  const ownership = await callCourseMetadata({
+    action: 'getForUser',
+    courseId: input.courseId,
+    userId,
+  });
+
+  if (!ownership.course) {
+    return c.json(
+      {
+        error: 'COURSE_NOT_FOUND',
+        message: 'Course not found or you do not have access.',
+      },
+      404,
+    );
+  }
 
   const quiz = await loadQuiz(input.courseId, input.chapterId);
 
@@ -57,7 +74,7 @@ study.post('/answer', async (c) => {
   });
 
   await saveProgress({
-    userId: input.userId,
+    userId,
     courseId: input.courseId,
     chapterId: input.chapterId,
     questionId: input.questionId,
@@ -66,7 +83,7 @@ study.post('/answer', async (c) => {
 
   if (!feedback.correct) {
     await saveMistake({
-      userId: input.userId,
+      userId,
       courseId: input.courseId,
       chapterId: input.chapterId,
       questionId: input.questionId,
@@ -93,10 +110,28 @@ study.post('/next', async (c) => {
   const body = await c.req.json();
   const input = NextInput.parse(body);
 
+  const userId = await getCurrentUserId(c);
+
+  const ownership = await callCourseMetadata({
+    action: 'getForUser',
+    courseId: input.courseId,
+    userId,
+  });
+
+  if (!ownership.course) {
+    return c.json(
+      {
+        error: 'COURSE_NOT_FOUND',
+        message: 'Course not found or you do not have access.',
+      },
+      404,
+    );
+  }
+
   const quiz = await loadQuiz(input.courseId, input.chapterId);
 
   const progress = await getChapterProgress({
-    userId: input.userId,
+    userId,
     courseId: input.courseId,
     chapterId: input.chapterId,
   });

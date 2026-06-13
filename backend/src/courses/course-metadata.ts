@@ -1,5 +1,6 @@
 import {
   getCourseMetadata,
+  getCourseMetadataForUser,
   listCourses,
   updateCourseStatus,
   upsertCourse,
@@ -17,12 +18,13 @@ type Event =
   | {
       action: 'upsert';
       courseId: string;
+      userId: string;
       title: string;
       playlistUrl: string;
       playlistId?: string;
       status: CourseStatus;
       errorMessage?: string | null;
-    }
+  }
   | {
       action: 'updateStatus';
       courseId: string;
@@ -31,10 +33,16 @@ type Event =
     }
   | {
       action: 'list';
+      userId: string;
     }
   | {
       action: 'get';
       courseId: string;
+    }
+  | {
+      action: 'getForUser';
+      courseId: string;
+      userId: string;
     };
 
 export const handler = async (event: Event) => {
@@ -62,13 +70,22 @@ export const handler = async (event: Event) => {
 
   if (event.action === 'list') {
     return {
-      courses: await listCourses(),
+      courses: await listCourses(event.userId),
     };
   }
 
   if (event.action === 'get') {
     return {
       course: await getCourseMetadata(event.courseId),
+    };
+  }
+
+  if (event.action === 'getForUser') {
+    return {
+      course: await getCourseMetadataForUser({
+        courseId: event.courseId,
+        userId: event.userId,
+      }),
     };
   }
 

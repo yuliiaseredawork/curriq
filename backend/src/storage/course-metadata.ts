@@ -3,6 +3,7 @@ import {
   listCourses,
   updateCourseStatus,
   upsertCourse,
+  getCourseMetadataForUser,
 } from '../storage/courses-repository';
 
 type Event =
@@ -23,6 +24,11 @@ type Event =
       action: 'list';
     }
   | {
+    action: 'getForUser';
+    courseId: string;
+    userId: string;
+  }  
+  | {
       action: 'get';
       courseId: string;
     };
@@ -34,6 +40,15 @@ export const handler = async (event: Event) => {
     return {
       status: 'OK',
       courseId: event.courseId,
+    };
+  }
+
+  if (event.action === 'getForUser') {
+    return {
+      course: await getCourseMetadataForUser({
+        courseId: event.courseId,
+        userId: event.userId,
+      }),
     };
   }
 

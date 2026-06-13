@@ -19,6 +19,8 @@ import {
   getCourseMistakes,
 } from '../../storage/study-state';
 
+import { getCurrentUserId } from '../../auth/current-user';
+
 export const courses = new Hono();
 const lambda = new LambdaClient({});
 
@@ -26,15 +28,42 @@ const Input = z.object({
   playlistUrl: z.string().url(),
 });
 
+function courseAccessDeniedResponse(c: any) {
+  return c.json(
+    {
+      error: 'COURSE_NOT_FOUND',
+      message: 'Course not found or you do not have access.',
+    },
+    404,
+  );
+}
+
+async function requireCourseAccess(c: any, courseId: string) {
+  const userId = await getCurrentUserId(c);
+
+  const result = await callCourseMetadata({
+    action: 'getForUser',
+    courseId,
+    userId,
+  });
+
+  if (!result.course) {
+    throw new Error('COURSE_ACCESS_DENIED');
+  }
+
+  return { userId, course: result.course };
+}
+
 courses.post('/', async (c) => {
   const body = await c.req.json();
   const input = Input.parse(body);
-
+  const userId = await getCurrentUserId(c);
   const courseId = randomUUID();
 
   await callCourseMetadata({
     action: 'upsert',
     courseId,
+    userId,
     title: 'Generating course...',
     playlistUrl: input.playlistUrl,
     status: 'CREATED',
@@ -48,6 +77,7 @@ courses.post('/', async (c) => {
         JSON.stringify({
           courseId,
           playlistUrl: input.playlistUrl,
+          userId,
         }),
       ),
     }),
@@ -64,8 +94,11 @@ courses.post('/', async (c) => {
 });
 
 courses.get('/', async (c) => {
+  const userId = await getCurrentUserId(c);
+
   const result = await callCourseMetadata({
     action: 'list',
+    userId,
   });
 
   return c.json(result);
@@ -74,34 +107,28 @@ courses.get('/', async (c) => {
 courses.get('/:courseId/status', async (c) => {
   const courseId = c.req.param('courseId');
 
-  const result = await callCourseMetadata({
-    action: 'get',
-    courseId,
-  });
+  try {
+    const { course } = await requireCourseAccess(c, courseId);
 
-  if (!result.course) {
-    return c.json(
-      {
-        error: 'COURSE_NOT_FOUND',
-      },
-      404,
-    );
+    return c.json({
+      courseId,
+      status: course.status,
+      title: course.title,
+      errorMessage: course.errorMessage,
+      updatedAt: course.updatedAt,
+    });
+  } catch (e: any) {
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    return c.json({ error: 'COURSE_NOT_FOUND' }, 404);
   }
-
-  return c.json({
-    courseId,
-    status: result.course.status,
-    title: result.course.title,
-    errorMessage: result.course.errorMessage,
-    updatedAt: result.course.updatedAt,
-  });
 });
 
 courses.get('/:courseId/weak-concepts', async (c) => {
   const courseId = c.req.param('courseId');
-  const userId = c.req.query('userId') ?? 'demo-user';
 
   try {
+    const { userId } = await requireCourseAccess(c, courseId);
+
     const mistakes = await getCourseMistakes({
       userId,
       courseId,
@@ -131,6 +158,7 @@ courses.get('/:courseId/weak-concepts', async (c) => {
       weakConcepts,
     });
   } catch (e: any) {
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
         error: 'WEAK_CONCEPTS_NOT_AVAILABLE',
@@ -143,9 +171,10 @@ courses.get('/:courseId/weak-concepts', async (c) => {
 
 courses.get('/:courseId/resume', async (c) => {
   const courseId = c.req.param('courseId');
-  const userId = c.req.query('userId') ?? 'demo-user';
 
   try {
+    const { userId } = await requireCourseAccess(c, courseId);
+
     const outline = await loadOutline(courseId);
 
     const progressItems = await getCourseProgress({
@@ -202,6 +231,7 @@ courses.get('/:courseId/resume', async (c) => {
       message: 'All generated quizzes are completed.',
     });
   } catch (e: any) {
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
         error: 'RESUME_NOT_AVAILABLE',
@@ -214,9 +244,10 @@ courses.get('/:courseId/resume', async (c) => {
 
 courses.get('/:courseId/progress', async (c) => {
   const courseId = c.req.param('courseId');
-  const userId = c.req.query('userId') ?? 'demo-user';
 
   try {
+    const { userId } = await requireCourseAccess(c, courseId);
+
     const course = await loadOutline(courseId);
     const progressItems = await getCourseProgress({
       userId,
@@ -289,37 +320,11 @@ courses.get('/:courseId/progress', async (c) => {
       chapters,
     });
   } catch (e: any) {
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
         error: 'PROGRESS_NOT_AVAILABLE',
         message: e.message ?? 'Could not load course progress.',
-      },
-      404,
-    );
-  }
-});
-
-courses.get('/:courseId', async (c) => {
-  const courseId = c.req.param('courseId');
-
-  try {
-    const metadataResult = await callCourseMetadata({
-      action: 'get',
-      courseId,
-    });
-
-    const outline = await loadOutline(courseId);
-
-    return c.json({
-      courseId,
-      metadata: metadataResult.course,
-      outline,
-    });
-  } catch {
-    return c.json(
-      {
-        error: 'COURSE_NOT_FOUND',
-        message: `No saved course found for ${courseId}`,
       },
       404,
     );
@@ -331,6 +336,8 @@ courses.get('/:courseId/quizzes/:chapterId', async (c) => {
   const chapterId = c.req.param('chapterId');
 
   try {
+    await requireCourseAccess(c, courseId);
+
     const quiz = await loadQuiz(courseId, chapterId);
 
     return c.json({
@@ -338,11 +345,36 @@ courses.get('/:courseId/quizzes/:chapterId', async (c) => {
       chapterId,
       quiz,
     });
-  } catch {
+  } catch (e: any) {
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
         error: 'QUIZ_NOT_FOUND',
         message: `No saved quiz found for ${courseId}/${chapterId}`,
+      },
+      404,
+    );
+  }
+});
+
+courses.get('/:courseId', async (c) => {
+  const courseId = c.req.param('courseId');
+
+  try {
+    const { course } = await requireCourseAccess(c, courseId);
+    const outline = await loadOutline(courseId);
+
+    return c.json({
+      courseId,
+      metadata: course,
+      outline,
+    });
+  } catch (e: any) {
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    return c.json(
+      {
+        error: 'COURSE_NOT_FOUND',
+        message: `No saved course found for ${courseId}`,
       },
       404,
     );

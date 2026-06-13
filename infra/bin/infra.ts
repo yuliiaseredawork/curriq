@@ -4,6 +4,7 @@ import { NetworkStack } from '../lib/network-stack';
 import { DataStack } from '../lib/data-stack';
 import { ApiStack } from '../lib/api-stack';
 import { IngestStack } from '../lib/ingest-stack';
+import { AuthStack } from '../lib/auth-stack';
 
 const app = new cdk.App();
 
@@ -15,6 +16,10 @@ const env = {
 };
 
 const network = new NetworkStack(app, `Curriq-Network-${stage}`, {
+  env,
+});
+
+const auth = new AuthStack(app, `Curriq-Auth-${stage}`, {
   env,
 });
 
@@ -43,4 +48,6 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   processTranscriptFn: ingest.processTranscriptFn,
   courseMetadataFn: ingest.courseMetadataFn,
   generateCourseFn: ingest.generateCourseFn,
+  userPoolId: auth.userPool.userPoolId,
+  userPoolClientId: auth.userPoolClient.userPoolClientId,
 });

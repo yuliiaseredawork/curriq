@@ -6,6 +6,8 @@ import {
   listCourses,
   getCourseStatus,
 } from '@/lib/api';
+import { getCurrentUser, signOut } from 'aws-amplify/auth';
+import { configureAuth } from '@/lib/auth';
 
 export default function Home() {
   const [playlistUrl, setPlaylistUrl] = useState('');
@@ -56,7 +58,6 @@ export default function Home() {
       setPlaylistUrl('');
 
       await waitForCourseReady(created.courseId);
-
       await loadCourses();
     } catch (e: any) {
       setError(
@@ -70,18 +71,38 @@ export default function Home() {
   }
 
   useEffect(() => {
-    loadCourses();
+    configureAuth();
+
+    getCurrentUser()
+      .then(() => loadCourses())
+      .catch(() => {
+        window.location.href = '/auth';
+      });
   }, []);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-4xl mx-auto space-y-10">
         <section className="space-y-4">
-          <h1 className="text-4xl font-bold">Curriq</h1>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-4xl font-bold">Curriq</h1>
 
-          <p className="text-gray-300">
-            Turn a YouTube playlist into an adaptive AI course.
-          </p>
+              <p className="text-gray-300 mt-4">
+                Turn a YouTube playlist into an adaptive AI course.
+              </p>
+            </div>
+
+            <button
+              className="text-sm text-gray-400 hover:text-white"
+              onClick={async () => {
+                await signOut();
+                window.location.href = '/auth';
+              }}
+            >
+              Sign out
+            </button>
+          </div>
 
           <div className="flex gap-3">
             <input
@@ -132,7 +153,8 @@ export default function Home() {
 
           {!loadingCourses && courses.length === 0 && (
             <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-gray-300">
-              No courses yet. Paste a YouTube playlist above to create your first course.
+              No courses yet. Paste a YouTube playlist above to create your
+              first course.
             </div>
           )}
 

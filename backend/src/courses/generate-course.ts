@@ -56,8 +56,9 @@ async function searchChunks(input: {
 export const handler = async (event: {
   courseId: string;
   playlistUrl: string;
+  userId: string;
 }) => {
-  const { courseId, playlistUrl } = event;
+  const { courseId, playlistUrl, userId } = event;
 
   try {
     await callCourseMetadata({
@@ -129,11 +130,13 @@ export const handler = async (event: {
     }
 
     const outline = await generateOutlineFromChunks(search.results);
+
     await saveOutline(courseId, outline);
 
     await callCourseMetadata({
       action: 'upsert',
       courseId,
+      userId,
       title: outline.title,
       playlistUrl,
       playlistId: manifest.playlistId,

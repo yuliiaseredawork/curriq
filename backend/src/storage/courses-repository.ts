@@ -40,6 +40,7 @@ type CourseStatus =
 
 export async function upsertCourse(input: {
   courseId: string;
+  userId: string;
   title: string;
   playlistUrl: string;
   playlistId?: string;
@@ -53,6 +54,7 @@ export async function upsertCourse(input: {
       `
       INSERT INTO public.courses (
         id,
+        user_id,
         title,
         playlist_url,
         playlist_id,
@@ -61,7 +63,7 @@ export async function upsertCourse(input: {
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
       ON CONFLICT (id)
       DO UPDATE SET
         title = EXCLUDED.title,
@@ -69,10 +71,12 @@ export async function upsertCourse(input: {
         playlist_id = EXCLUDED.playlist_id,
         status = EXCLUDED.status,
         error_message = EXCLUDED.error_message,
-        updated_at = now()
+        updated_at = now(),
+        user_id = EXCLUDED.user_id
       `,
       [
         input.courseId,
+        input.userId,
         input.title,
         input.playlistUrl,
         input.playlistId ?? null,
@@ -108,7 +112,7 @@ export async function updateCourseStatus(input: {
   }
 }
 
-export async function listCourses() {
+export async function listCourses(userId: string) {
   const client = await createClient();
 
   try {
@@ -116,17 +120,20 @@ export async function listCourses() {
       `
       SELECT
         id,
+        user_id,
         title,
         playlist_url,
         playlist_id,
         status,
+        error_message,
         created_at,
-        updated_at,
-        errorMessage
+        updated_at
       FROM public.courses
+      WHERE user_id = $1
       ORDER BY created_at DESC
       LIMIT 50
       `,
+      [userId],
     );
 
     return result.rows.map((r) => ({
@@ -138,6 +145,7 @@ export async function listCourses() {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       errorMessage: r.error_message,
+      userId: r.user_id,
     }));
   } finally {
     await client.end();
@@ -174,6 +182,52 @@ export async function getCourseMetadata(courseId: string) {
       playlistUrl: r.playlist_url,
       playlistId: r.playlist_id,
       status: r.status,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  } finally {
+    await client.end();
+  }
+}
+
+export async function getCourseMetadataForUser(input: {
+  courseId: string;
+  userId: string;
+}) {
+  const client = await createClient();
+
+  try {
+    const result = await client.query(
+      `
+      SELECT
+        id,
+        user_id,
+        title,
+        playlist_url,
+        playlist_id,
+        status,
+        error_message,
+        created_at,
+        updated_at
+      FROM public.courses
+      WHERE id = $1
+        AND user_id = $2
+      `,
+      [input.courseId, input.userId],
+    );
+
+    const r = result.rows[0];
+
+    if (!r) return null;
+
+    return {
+      courseId: r.id,
+      userId: r.user_id,
+      title: r.title,
+      playlistUrl: r.playlist_url,
+      playlistId: r.playlist_id,
+      status: r.status,
+      errorMessage: r.error_message,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };

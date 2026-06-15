@@ -19,7 +19,7 @@ import {
   getCourseMistakes,
 } from '../../storage/study-state';
 
-import { getCurrentUserId } from '../../auth/current-user';
+import { getCurrentUserId, UnauthorizedError } from '../../auth/current-user';
 
 export const courses = new Hono();
 const lambda = new LambdaClient({});
@@ -60,6 +60,8 @@ courses.post('/', async (c) => {
   const userId = await getCurrentUserId(c);
   const courseId = randomUUID();
 
+  console.log('[POST /courses]', { courseId, userId });
+
   await callCourseMetadata({
     action: 'upsert',
     courseId,
@@ -82,6 +84,8 @@ courses.post('/', async (c) => {
       ),
     }),
   );
+
+  console.log('[POST /courses] GenerateCourseFn invoked async', { courseId });
 
   return c.json(
     {
@@ -118,6 +122,7 @@ courses.get('/:courseId/status', async (c) => {
       updatedAt: course.updatedAt,
     });
   } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json({ error: 'COURSE_NOT_FOUND' }, 404);
   }
@@ -158,6 +163,7 @@ courses.get('/:courseId/weak-concepts', async (c) => {
       weakConcepts,
     });
   } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
@@ -231,6 +237,7 @@ courses.get('/:courseId/resume', async (c) => {
       message: 'All generated quizzes are completed.',
     });
   } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
@@ -320,6 +327,7 @@ courses.get('/:courseId/progress', async (c) => {
       chapters,
     });
   } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
@@ -346,6 +354,7 @@ courses.get('/:courseId/quizzes/:chapterId', async (c) => {
       quiz,
     });
   } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {
@@ -370,6 +379,7 @@ courses.get('/:courseId', async (c) => {
       outline,
     });
   } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json(
       {

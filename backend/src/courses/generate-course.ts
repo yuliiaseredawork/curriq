@@ -60,7 +60,10 @@ export const handler = async (event: {
 }) => {
   const { courseId, playlistUrl, userId } = event;
 
+  console.log('[generate-course] start', { courseId, userId });
+
   try {
+    console.log('[generate-course] status → INGESTING', { courseId });
     await callCourseMetadata({
       action: 'updateStatus',
       courseId,
@@ -70,6 +73,13 @@ export const handler = async (event: {
     const ingestion = await startCourseIngestion({
       courseId,
       playlistUrl,
+    });
+
+    console.log('[generate-course] ingestion complete', {
+      courseId,
+      playlistId: ingestion.playlistId,
+      videoCount: ingestion.videoIds.length,
+      results: ingestion.results.map((r: any) => ({ videoId: r.videoId, status: r.status })),
     });
 
     const manifest = {
@@ -89,6 +99,7 @@ export const handler = async (event: {
 
     await saveCourseManifest(courseId, manifest);
 
+    console.log('[generate-course] status → PROCESSING', { courseId, transcriptCount: manifest.transcripts.length });
     await callCourseMetadata({
       action: 'updateStatus',
       courseId,
@@ -102,17 +113,20 @@ export const handler = async (event: {
         videoId: transcript.videoId,
       };
 
+      console.log('[generate-course] embedding transcript', { courseId, videoId: transcript.videoId });
       await invokeJson(
         process.env.EMBED_TRANSCRIPT_FUNCTION_NAME!,
         payload,
       );
 
+      console.log('[generate-course] processing transcript', { courseId, videoId: transcript.videoId });
       await invokeJson(
         process.env.PROCESS_TRANSCRIPT_FUNCTION_NAME!,
         payload,
       );
     }
 
+    console.log('[generate-course] status → OUTLINING', { courseId });
     await callCourseMetadata({
       action: 'updateStatus',
       courseId,
@@ -125,11 +139,15 @@ export const handler = async (event: {
       limit: 6,
     });
 
+    console.log('[generate-course] search results', { courseId, count: search.results?.length ?? 0 });
+
     if (!search.results?.length) {
       throw new Error('No embedded chunks found after processing.');
     }
 
     const outline = await generateOutlineFromChunks(search.results);
+
+    console.log('[generate-course] outline generated', { courseId, title: outline.title, chapters: outline.chapters.length });
 
     await saveOutline(courseId, outline);
 
@@ -143,18 +161,30 @@ export const handler = async (event: {
       status: 'READY',
     });
 
+    console.log('[generate-course] status → READY', { courseId, userId });
+
     return {
       courseId,
       status: 'READY',
       title: outline.title,
     };
   } catch (e: any) {
-    await callCourseMetadata({
-      action: 'updateStatus',
-      courseId,
-      status: 'FAILED',
-      errorMessage: String(e?.message ?? e),
-    });
+    const errorMessage = String(e?.message ?? e);
+    console.error('[generate-course] FAILED', { courseId, userId, error: errorMessage });
+
+    try {
+      await callCourseMetadata({
+        action: 'updateStatus',
+        courseId,
+        status: 'FAILED',
+        errorMessage,
+      });
+    } catch (metaErr: any) {
+      console.error('[generate-course] could not update status to FAILED', {
+        courseId,
+        metaError: String(metaErr?.message ?? metaErr),
+      });
+    }
 
     throw e;
   }

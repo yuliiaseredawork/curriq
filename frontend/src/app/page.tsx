@@ -1,26 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  createCourse,
-  listCourses,
-  getCourseStatus,
-} from '@/lib/api';
-import { getCurrentUser, signOut } from 'aws-amplify/auth';
-import { configureAuth } from '@/lib/auth';
+import { useRouter } from 'next/navigation';
+import { useAuth, useUser, useClerk } from '@clerk/nextjs';
+import { createApiClient } from '@/lib/api';
 
 export default function Home() {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const router = useRouter();
+  const api = createApiClient(getToken);
+
   const [playlistUrl, setPlaylistUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [error, setError] = useState('');
   const [courses, setCourses] = useState<any[]>([]);
 
+  const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
+
   async function loadCourses() {
     setLoadingCourses(true);
-
     try {
-      const result = await listCourses();
+      const result = await api.listCourses();
       setCourses(result.courses ?? []);
     } catch (e: any) {
       setError(e.message ?? 'Failed to load courses');
@@ -31,54 +34,50 @@ export default function Home() {
 
   async function waitForCourseReady(courseId: string) {
     const maxAttempts = 60;
-
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const status = await getCourseStatus(courseId);
-
-      if (status.status === 'READY') {
-        return;
-      }
-
-      if (status.status === 'FAILED') {
-        throw new Error(status.errorMessage ?? 'Course generation failed');
-      }
-
+      const status = await api.getCourseStatus(courseId);
+      if (status.status === 'READY') return;
+      if (status.status === 'FAILED') throw new Error(status.errorMessage ?? 'Course generation failed');
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
-
     throw new Error('Course generation timed out');
   }
 
   async function handleGenerate() {
     setLoading(true);
     setError('');
-
     try {
-      const created = await createCourse(playlistUrl);
+      const created = await api.createCourse(playlistUrl);
       setPlaylistUrl('');
-
       await waitForCourseReady(created.courseId);
       await loadCourses();
     } catch (e: any) {
-      setError(
-        e.message?.includes('Service Unavailable')
-          ? 'Course was processed, but one of the AI generation steps temporarily failed. Please try again.'
-          : e.message ?? 'Something went wrong',
-      );
+      setError(e.message ?? 'Something went wrong');
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    configureAuth();
+    if (!isLoaded) return;
 
-    getCurrentUser()
-      .then(() => loadCourses())
-      .catch(() => {
-        window.location.href = '/auth';
-      });
-  }, []);
+    if (!isSignedIn) {
+      router.replace('/sign-in');
+      return;
+    }
+
+    loadCourses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn]);
+
+  // Wait for Clerk before rendering anything that calls the API.
+  if (!isLoaded || !isSignedIn) {
+    return (
+      <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
+        <p className="text-gray-400">Loading...</p>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -87,21 +86,22 @@ export default function Home() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-4xl font-bold">Curriq</h1>
-
               <p className="text-gray-300 mt-4">
                 Turn a YouTube playlist into an adaptive AI course.
               </p>
             </div>
 
-            <button
-              className="text-sm text-gray-400 hover:text-white"
-              onClick={async () => {
-                await signOut();
-                window.location.href = '/auth';
-              }}
-            >
-              Sign out
-            </button>
+            <div className="text-right space-y-1 shrink-0">
+              {userEmail && (
+                <p className="text-sm text-gray-400">Signed in as {userEmail}</p>
+              )}
+              <button
+                className="text-sm text-gray-400 hover:text-white"
+                onClick={() => signOut({ redirectUrl: '/sign-in' })}
+              >
+                Sign out
+              </button>
+            </div>
           </div>
 
           <div className="flex gap-3">
@@ -111,7 +111,6 @@ export default function Home() {
               value={playlistUrl}
               onChange={(e) => setPlaylistUrl(e.target.value)}
             />
-
             <button
               className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
               onClick={handleGenerate}
@@ -137,7 +136,6 @@ export default function Home() {
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold">My Courses</h2>
-
             <button
               className="text-sm text-blue-400 hover:text-blue-300"
               onClick={loadCourses}
@@ -147,14 +145,11 @@ export default function Home() {
             </button>
           </div>
 
-          {loadingCourses && (
-            <p className="text-gray-400">Loading courses...</p>
-          )}
+          {loadingCourses && <p className="text-gray-400">Loading courses...</p>}
 
           {!loadingCourses && courses.length === 0 && (
             <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-gray-300">
-              No courses yet. Paste a YouTube playlist above to create your
-              first course.
+              No courses yet. Paste a YouTube playlist above to create your first course.
             </div>
           )}
 
@@ -170,12 +165,8 @@ export default function Home() {
                     <h3 className="text-lg font-semibold">
                       {course.title ?? 'Untitled course'}
                     </h3>
-
-                    <p className="text-sm text-gray-400">
-                      {course.playlistUrl}
-                    </p>
+                    <p className="text-sm text-gray-400">{course.playlistUrl}</p>
                   </div>
-
                   <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
                     {course.status}
                   </span>

@@ -3,3 +3,7 @@ packages:
   - "backend"
   - "infra"
   - "packages/*"
+
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

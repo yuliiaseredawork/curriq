@@ -21,6 +21,7 @@ const network = new NetworkStack(app, `Curriq-Network-${stage}`, {
 
 const auth = new AuthStack(app, `Curriq-Auth-${stage}`, {
   env,
+  stage,
 });
 
 const data = new DataStack(app, `Curriq-Data-${stage}`, {

@@ -1,9 +1,8 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import { getPractice, submitAnswer } from '@/lib/api';
-
-const USER_ID = 'demo-user';
+import { useAuth } from '@clerk/nextjs';
+import { createApiClient } from '@/lib/api';
 
 export default function PracticePage({
   params,
@@ -11,6 +10,8 @@ export default function PracticePage({
   params: Promise<{ courseId: string; practiceId: string }>;
 }) {
   const { courseId, practiceId } = use(params);
+  const { getToken } = useAuth();
+  const api = createApiClient(getToken);
 
   const [practice, setPractice] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -19,7 +20,8 @@ export default function PracticePage({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    getPractice(courseId, practiceId)
+    api
+      .getPractice(courseId, practiceId)
       .then((result) => setPractice(result.practice))
       .catch((e) => setError(e.message ?? 'Failed to load practice'));
   }, [courseId, practiceId]);
@@ -42,20 +44,12 @@ export default function PracticePage({
 
   const question = practice.questions[currentIndex];
 
-  async function handleSubmit() {
+  function handleSubmit() {
     if (!answer) return;
-
-    try {
-      // For practice MVP, evaluate locally enough through the same answer endpoint is not possible
-      // because /study/answer expects saved quiz chapter/question.
-      // So for now, we show answer directly after submit.
-      setFeedback({
-        correct: answer.trim().toLowerCase() === question.answer.trim().toLowerCase(),
-        explanation: `Ideal answer: ${question.answer}`,
-      });
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to submit practice answer');
-    }
+    setFeedback({
+      correct: answer.trim().toLowerCase() === question.answer.trim().toLowerCase(),
+      explanation: `Ideal answer: ${question.answer}`,
+    });
   }
 
   function handleNext() {
@@ -73,7 +67,6 @@ export default function PracticePage({
           <a href={`/courses/${courseId}`} className="text-blue-400">
             ← Back to course
           </a>
-
           <div className="rounded-xl border border-green-700 bg-green-950 p-6">
             Practice completed 🎉
           </div>
@@ -90,9 +83,7 @@ export default function PracticePage({
         </a>
 
         <div>
-          <div className="text-sm text-yellow-300">
-            Extra practice
-          </div>
+          <div className="text-sm text-yellow-300">Extra practice</div>
           <h1 className="text-3xl font-bold">{practice.title}</h1>
           <p className="text-gray-400">
             Question {currentIndex + 1} / {practice.questions.length}
@@ -147,9 +138,7 @@ export default function PracticePage({
               <div className={feedback.correct ? 'text-green-400' : 'text-yellow-300'}>
                 {feedback.correct ? 'Correct' : 'Review this'}
               </div>
-
               <p className="text-gray-300">{feedback.explanation}</p>
-
               <button
                 className="rounded-lg bg-blue-500 px-5 py-3 text-white"
                 onClick={handleNext}

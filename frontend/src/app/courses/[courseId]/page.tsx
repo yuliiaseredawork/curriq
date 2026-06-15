@@ -2,13 +2,8 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  getCourse,
-  getCourseProgress,
-  getResume,
-  getWeakConcepts,
-  generatePractice
-} from '@/lib/api';
+import { useAuth, useUser } from '@clerk/nextjs';
+import { createApiClient } from '@/lib/api';
 
 export default function CoursePage({
   params,
@@ -17,6 +12,15 @@ export default function CoursePage({
 }) {
   const { courseId } = use(params);
   const router = useRouter();
+  const { getToken, isLoaded: authLoaded } = useAuth();
+  const { user, isLoaded: userLoaded } = useUser();
+  const api = createApiClient(getToken);
+
+  const userId = user?.primaryEmailAddress?.emailAddress
+    ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
+    : user?.id
+      ? `clerk:${user.id}`
+      : null;
 
   const [course, setCourse] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
@@ -26,10 +30,12 @@ export default function CoursePage({
   const [practiceLoadingConcept, setPracticeLoadingConcept] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!authLoaded || !userLoaded || !userId) return;
+
     Promise.all([
-      getCourse(courseId),
-      getCourseProgress(courseId),
-      getWeakConcepts(courseId),
+      api.getCourse(courseId),
+      api.getCourseProgress(courseId, userId),
+      api.getWeakConcepts(courseId, userId),
     ])
       .then(([courseResult, progressResult, weakConceptsResult]) => {
         setCourse(courseResult);
@@ -37,19 +43,13 @@ export default function CoursePage({
         setWeakConcepts(weakConceptsResult.weakConcepts ?? []);
       })
       .catch((e) => setError(e.message ?? 'Failed to load course'));
-  }, [courseId]);
+  }, [courseId, authLoaded, userLoaded, userId]);
 
   async function handlePracticeConcept(concept: string) {
     setPracticeLoadingConcept(concept);
     setError('');
-
     try {
-      const result = await generatePractice({
-        courseId,
-        concept,
-        limit: 5,
-      });
-
+      const result = await api.generatePractice({ courseId, concept, limit: 5 });
       router.push(`/courses/${courseId}/practice/${result.practiceId}`);
     } catch (e: any) {
       setError(e.message ?? 'Failed to generate practice');
@@ -59,22 +59,19 @@ export default function CoursePage({
   }
 
   async function handleContinue() {
+    if (!userId) return;
     setResumeLoading(true);
     setError('');
-
     try {
-      const resume = await getResume(courseId);
-
+      const resume = await api.getResume(courseId, userId);
       if (resume.status === 'CONTINUE' || resume.status === 'QUIZ_NOT_READY') {
         router.push(`/courses/${courseId}/chapters/${resume.chapterId}`);
         return;
       }
-
       if (resume.status === 'COMPLETED') {
         setError('You completed all generated quizzes for this course.');
         return;
       }
-
       setError('Could not find where to continue.');
     } catch (e: any) {
       setError(e.message ?? 'Failed to resume course');
@@ -90,7 +87,6 @@ export default function CoursePage({
           <a href="/" className="text-blue-400">
             ← My Courses
           </a>
-
           <div className="mt-6 rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">
             {error}
           </div>
@@ -125,13 +121,10 @@ export default function CoursePage({
                   {progress.completionPercent}%
                 </div>
               </div>
-
               <div className="text-sm text-gray-400">
-                {progress.answeredQuestions} / {progress.totalQuestions}{' '}
-                questions
+                {progress.answeredQuestions} / {progress.totalQuestions} questions
               </div>
             </div>
-
             <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
               <div
                 className="h-full bg-blue-500"
@@ -145,9 +138,8 @@ export default function CoursePage({
           <div className="rounded-xl border border-yellow-800 bg-yellow-950/30 p-5 space-y-3">
             <div>
               <div className="text-sm text-yellow-300">Focus areas</div>
-                <h2 className="text-xl font-semibold">Concepts to review</h2>
+              <h2 className="text-xl font-semibold">Concepts to review</h2>
             </div>
-
             <div className="space-y-2">
               {weakConcepts.map((item) => (
                 <div
@@ -210,13 +202,10 @@ export default function CoursePage({
                           : 'Quiz not generated yet. Start studying to generate quizzes'}
                       </span>
                     </div>
-
                     <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
                       <div
                         className="h-full bg-blue-500"
-                        style={{
-                          width: `${chapterProgress.completionPercent}%`,
-                        }}
+                        style={{ width: `${chapterProgress.completionPercent}%` }}
                       />
                     </div>
                   </div>

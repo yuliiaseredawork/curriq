@@ -8,8 +8,18 @@ import { study } from './routes/study';
 import { cors } from 'hono/cors';
 import { courseProcessing } from './routes/course-processing';
 import { practice } from './routes/practice';
+import { UnauthorizedError } from '../auth/current-user';
 
 const app = new Hono();
+
+// Map auth failures to a clean 401 instead of a generic 500.
+app.onError((err, c) => {
+  if (err instanceof UnauthorizedError || err.message === 'UNAUTHORIZED') {
+    return c.json({ error: 'UNAUTHORIZED' }, 401);
+  }
+  console.error('[api] unhandled error:', err);
+  return c.json({ error: 'INTERNAL_ERROR' }, 500);
+});
 
 app.use(
   '*',

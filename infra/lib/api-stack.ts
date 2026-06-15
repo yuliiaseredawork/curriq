@@ -56,6 +56,8 @@ export class ApiStack extends cdk.Stack {
         PROCESS_TRANSCRIPT_FUNCTION_NAME: props.processTranscriptFn.functionName,
         COURSE_METADATA_FUNCTION_NAME: props.courseMetadataFn.functionName,
         GENERATE_COURSE_FUNCTION_NAME: props.generateCourseFn.functionName,
+        CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY ?? '',
+        CLERK_JWT_KEY: process.env.CLERK_JWT_KEY ?? '',
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_USER_POOL_CLIENT_ID: props.userPoolClientId,
       },

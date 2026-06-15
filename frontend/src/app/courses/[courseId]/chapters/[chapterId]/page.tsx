@@ -1,14 +1,8 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import {
-  generateQuiz,
-  getNextQuestion,
-  submitAnswer,
-  getQuiz,
-} from '@/lib/api';
-
-const USER_ID = 'demo-user';
+import { useAuth, useUser } from '@clerk/nextjs';
+import { createApiClient } from '@/lib/api';
 
 export default function ChapterPage({
   params,
@@ -16,6 +10,15 @@ export default function ChapterPage({
   params: Promise<{ courseId: string; chapterId: string }>;
 }) {
   const { courseId, chapterId } = use(params);
+  const { getToken, isLoaded: authLoaded } = useAuth();
+  const { user, isLoaded: userLoaded } = useUser();
+  const api = createApiClient(getToken);
+
+  const userId = user?.primaryEmailAddress?.emailAddress
+    ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
+    : user?.id
+      ? `clerk:${user.id}`
+      : null;
 
   const [loading, setLoading] = useState(true);
   const [question, setQuestion] = useState<any>(null);
@@ -25,18 +28,13 @@ export default function ChapterPage({
   const [error, setError] = useState('');
 
   async function loadNext() {
+    if (!userId) return;
     setLoading(true);
     setError('');
     setFeedback(null);
     setAnswer('');
-
     try {
-      const next = await getNextQuestion({
-        userId: USER_ID,
-        courseId,
-        chapterId,
-      });
-
+      const next = await api.getNextQuestion({ userId, courseId, chapterId });
       setStatus(next.status);
       setQuestion(next.question ?? null);
     } catch (e: any) {
@@ -47,16 +45,15 @@ export default function ChapterPage({
   }
 
   async function ensureQuizAndLoad() {
+    if (!userId) return;
     setLoading(true);
     setError('');
-
     try {
       try {
-        await getQuiz(courseId, chapterId);
+        await api.getQuiz(courseId, chapterId);
       } catch {
-        await generateQuiz(courseId, chapterId);
+        await api.generateQuiz(courseId, chapterId);
       }
-
       await loadNext();
     } catch (e: any) {
       setError(
@@ -69,20 +66,17 @@ export default function ChapterPage({
   }
 
   async function handleSubmit() {
-    if (!question || !answer) return;
-
+    if (!question || !answer || !userId) return;
     setLoading(true);
     setError('');
-
     try {
-      const result = await submitAnswer({
-        userId: USER_ID,
+      const result = await api.submitAnswer({
+        userId,
         courseId,
         chapterId,
         questionId: question.id,
         userAnswer: answer,
       });
-
       setFeedback(result.feedback);
     } catch (e: any) {
       setError(e.message ?? 'Failed to submit answer');
@@ -92,8 +86,9 @@ export default function ChapterPage({
   }
 
   useEffect(() => {
+    if (!authLoaded || !userLoaded || !userId) return;
     ensureQuizAndLoad();
-  }, []);
+  }, [authLoaded, userLoaded, userId]);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -164,16 +159,10 @@ export default function ChapterPage({
 
             {feedback && (
               <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3">
-                <div
-                  className={
-                    feedback.correct ? 'text-green-400' : 'text-red-400'
-                  }
-                >
+                <div className={feedback.correct ? 'text-green-400' : 'text-red-400'}>
                   {feedback.correct ? 'Correct' : 'Not quite'}
                 </div>
-
                 <p className="text-gray-300">{feedback.explanation}</p>
-
                 <button
                   className="rounded-lg bg-blue-500 px-5 py-3 text-white"
                   onClick={loadNext}

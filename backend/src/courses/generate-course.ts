@@ -1,4 +1,8 @@
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import {
+  LambdaClient,
+  InvokeCommand,
+  InvocationType,
+} from '@aws-sdk/client-lambda';
 import OpenAI from 'openai';
 
 import { startCourseIngestion } from '../ingest/start-course-ingestion';
@@ -37,6 +41,43 @@ async function invokeJson(functionName: string, payload: unknown) {
   }
 
   return parsed;
+}
+
+/**
+ * Kick off background quiz generation for every chapter (fire-and-forget).
+ * The course is already READY once the outline is saved; quiz generation
+ * tracks its own per-chapter status, so failures here never fail the course.
+ */
+async function fanOutChapterQuizzes(
+  courseId: string,
+  chapters: Array<{ id: string }>,
+) {
+  const fnName = process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME;
+  if (!fnName) {
+    console.warn('[generate-course] GENERATE_CHAPTER_QUIZ_FUNCTION_NAME not set; skipping quiz fan-out', { courseId });
+    return;
+  }
+
+  for (const chapter of chapters) {
+    try {
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: fnName,
+          InvocationType: InvocationType.Event,
+          Payload: Buffer.from(
+            JSON.stringify({ courseId, chapterId: chapter.id }),
+          ),
+        }),
+      );
+      console.log('[generate-course] quiz generation queued', { courseId, chapterId: chapter.id });
+    } catch (e: any) {
+      console.error('[generate-course] failed to queue chapter quiz', {
+        courseId,
+        chapterId: chapter.id,
+        error: String(e?.message ?? e),
+      });
+    }
+  }
 }
 
 async function searchChunks(input: {
@@ -162,6 +203,10 @@ export const handler = async (event: {
     });
 
     console.log('[generate-course] status → READY', { courseId, userId });
+
+    // Course is READY (outline available). Generate quizzes in the background
+    // without blocking — per-chapter status is tracked separately.
+    await fanOutChapterQuizzes(courseId, outline.chapters);
 
     return {
       courseId,

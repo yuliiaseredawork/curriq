@@ -104,6 +104,21 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
+    async getQuizStatus(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/quiz-status`, { headers: await h() });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async retryChapterQuiz(courseId: string, chapterId: string) {
+      const res = await fetch(
+        `${API_URL}/courses/${courseId}/chapters/${chapterId}/quiz/retry`,
+        { method: 'POST', headers: await h() },
+      );
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
     async getCourseProgress(courseId: string, userId: string) {
       const res = await fetch(
         `${API_URL}/courses/${courseId}/progress?userId=${encodeURIComponent(userId)}`,

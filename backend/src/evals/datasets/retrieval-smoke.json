@@ -1,0 +1,50 @@
+[
+  {
+    "id": "apple-pay-start-year",
+    "query": "When did Apple Pay launch?",
+    "expectedAnswer": "Apple Pay launched in 2014.",
+    "expectedConcepts": ["Apple Pay", "launch", "history"]
+  },
+  {
+    "id": "tokenization-definition",
+    "query": "What is tokenization in mobile payments?",
+    "expectedAnswer": "Tokenization replaces the real card number (PAN) with a surrogate value (a token) so the actual card number is never exposed during a transaction.",
+    "expectedConcepts": ["tokenization", "token", "PAN"]
+  },
+  {
+    "id": "pan-definition",
+    "query": "What is a PAN?",
+    "expectedAnswer": "PAN is the Primary Account Number — the actual card number printed on a payment card.",
+    "expectedConcepts": ["PAN", "Primary Account Number", "card number"]
+  },
+  {
+    "id": "dpan-device-account-number",
+    "query": "What is a Device Account Number or DPAN?",
+    "expectedAnswer": "The Device Account Number (DPAN) is a device-specific token that stands in for the real card PAN on a given device.",
+    "expectedConcepts": ["DPAN", "Device Account Number", "token", "PAN"]
+  },
+  {
+    "id": "secure-element",
+    "query": "What is the Secure Element and what does it do?",
+    "expectedAnswer": "The Secure Element is a tamper-resistant chip that securely stores payment credentials such as the device token.",
+    "expectedConcepts": ["Secure Element", "secure storage", "credentials"]
+  },
+  {
+    "id": "host-card-emulation",
+    "query": "What is Host Card Emulation (HCE)?",
+    "expectedAnswer": "Host Card Emulation lets a phone emulate a contactless card in software (often with cloud-based credentials) instead of relying on a hardware Secure Element.",
+    "expectedConcepts": ["Host Card Emulation", "HCE", "Secure Element", "Google Pay"]
+  },
+  {
+    "id": "nfc-payment-flow",
+    "query": "What happens during an NFC contactless payment?",
+    "expectedAnswer": "The phone communicates with the terminal over NFC and transmits a token plus a one-time cryptogram, which is sent for authorization instead of the real card number.",
+    "expectedConcepts": ["NFC", "contactless", "cryptogram", "token", "terminal"]
+  },
+  {
+    "id": "token-service-provider",
+    "query": "What is the role of the Token Service Provider (TSP)?",
+    "expectedAnswer": "The Token Service Provider issues and manages tokens, mapping them to the real PAN and de-tokenizing during authorization.",
+    "expectedConcepts": ["Token Service Provider", "TSP", "token", "PAN", "authorization"]
+  }
+]

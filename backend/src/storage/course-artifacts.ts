@@ -105,6 +105,134 @@ export async function loadCourseManifest(courseId: string) {
   return JSON.parse(await obj.Body!.transformToString());
 }
 
+// ---------------------------------------------------------------------------
+// Per-chapter quiz generation status
+//
+// Background quiz generation fans out one Lambda per chapter. To avoid S3
+// read-modify-write races on a single shared manifest, each chapter's status
+// is its own object. loadQuizManifest() assembles them into the manifest shape
+// the API returns, inferring READY from an existing quiz artifact when no
+// status object is present yet (tolerant of pre-existing courses).
+// ---------------------------------------------------------------------------
+
+export type ChapterQuizStatus =
+  | 'NOT_STARTED'
+  | 'GENERATING'
+  | 'READY'
+  | 'FAILED';
+
+export type ChapterQuizRecord = {
+  chapterId: string;
+  status: ChapterQuizStatus;
+  questionCount?: number;
+  errorMessage?: string;
+  updatedAt?: string;
+};
+
+export function quizStatusKey(courseId: string, chapterId: string) {
+  return `courses/${courseId}/quiz-status/${chapterId}.json`;
+}
+
+async function tryGetJson(key: string): Promise<any | null> {
+  try {
+    const obj = await s3.send(
+      new GetObjectCommand({
+        Bucket: process.env.PROCESSED_BUCKET!,
+        Key: key,
+      }),
+    );
+    return JSON.parse(await obj.Body!.transformToString());
+  } catch (e: any) {
+    if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+export async function loadChapterQuizStatus(
+  courseId: string,
+  chapterId: string,
+): Promise<ChapterQuizRecord | null> {
+  return tryGetJson(quizStatusKey(courseId, chapterId));
+}
+
+export async function updateChapterQuizStatus(
+  courseId: string,
+  chapterId: string,
+  patch: {
+    status: ChapterQuizStatus;
+    questionCount?: number;
+    errorMessage?: string;
+  },
+): Promise<ChapterQuizRecord> {
+  const record: ChapterQuizRecord = {
+    chapterId,
+    status: patch.status,
+    updatedAt: new Date().toISOString(),
+    ...(patch.questionCount !== undefined
+      ? { questionCount: patch.questionCount }
+      : {}),
+    ...(patch.errorMessage !== undefined
+      ? { errorMessage: patch.errorMessage }
+      : {}),
+  };
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: process.env.PROCESSED_BUCKET!,
+      Key: quizStatusKey(courseId, chapterId),
+      Body: JSON.stringify(record, null, 2),
+      ContentType: 'application/json',
+    }),
+  );
+
+  return record;
+}
+
+/**
+ * Assemble the course-level quiz manifest from per-chapter status objects.
+ * Tolerant: if a chapter has no status object yet, infer READY from an
+ * existing quiz artifact, otherwise NOT_STARTED.
+ */
+export async function loadQuizManifest(
+  courseId: string,
+  chapterIds: string[],
+): Promise<{
+  courseId: string;
+  updatedAt: string;
+  chapters: Record<string, ChapterQuizRecord>;
+}> {
+  const chapters: Record<string, ChapterQuizRecord> = {};
+  let latest = '';
+
+  for (const chapterId of chapterIds) {
+    let record = await loadChapterQuizStatus(courseId, chapterId);
+
+    if (!record) {
+      const quiz = await tryGetJson(quizKey(courseId, chapterId));
+      record = quiz
+        ? {
+            chapterId,
+            status: 'READY',
+            questionCount: quiz.questions?.length ?? 0,
+          }
+        : { chapterId, status: 'NOT_STARTED' };
+    }
+
+    chapters[chapterId] = record;
+    if (record.updatedAt && record.updatedAt > latest) {
+      latest = record.updatedAt;
+    }
+  }
+
+  return {
+    courseId,
+    updatedAt: latest || new Date().toISOString(),
+    chapters,
+  };
+}
+
 export function practiceKey(courseId: string, practiceId: string) {
   return `courses/${courseId}/practice/${practiceId}.json`;
 }

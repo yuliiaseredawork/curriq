@@ -28,6 +28,18 @@ export default function CoursePage({
   const [resumeLoading, setResumeLoading] = useState(false);
   const [weakConcepts, setWeakConcepts] = useState<any[]>([]);
   const [practiceLoadingConcept, setPracticeLoadingConcept] = useState<string | null>(null);
+  const [quizStatus, setQuizStatus] = useState<Record<string, any>>({});
+
+  async function loadQuizStatus() {
+    try {
+      const result = await api.getQuizStatus(courseId);
+      const byChapter: Record<string, any> = {};
+      for (const ch of result.chapters ?? []) byChapter[ch.chapterId] = ch;
+      setQuizStatus(byChapter);
+    } catch {
+      // quiz status is best-effort; don't block the page on it
+    }
+  }
 
   useEffect(() => {
     if (!authLoaded || !userLoaded || !userId) return;
@@ -43,7 +55,35 @@ export default function CoursePage({
         setWeakConcepts(weakConceptsResult.weakConcepts ?? []);
       })
       .catch((e) => setError(e.message ?? 'Failed to load course'));
+
+    loadQuizStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, authLoaded, userLoaded, userId]);
+
+  // Poll quiz status while any chapter is still generating.
+  useEffect(() => {
+    const anyGenerating = Object.values(quizStatus).some(
+      (s: any) => s.status === 'GENERATING',
+    );
+    if (!anyGenerating) return;
+    const interval = setInterval(loadQuizStatus, 4000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizStatus]);
+
+  async function handleRetryQuiz(chapterId: string) {
+    setQuizStatus((prev) => ({
+      ...prev,
+      [chapterId]: { ...prev[chapterId], chapterId, status: 'GENERATING' },
+    }));
+    try {
+      await api.retryChapterQuiz(courseId, chapterId);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to start quiz generation');
+    } finally {
+      loadQuizStatus();
+    }
+  }
 
   async function handlePracticeConcept(concept: string) {
     setPracticeLoadingConcept(concept);
@@ -177,6 +217,9 @@ export default function CoursePage({
               (p: any) => p.chapterId === chapter.id,
             );
 
+            const quiz = quizStatus[chapter.id];
+            const quizState = quiz?.status ?? 'NOT_STARTED';
+
             const buttonLabel =
               chapterProgress?.status === 'COMPLETED'
                 ? 'Review chapter'
@@ -184,12 +227,26 @@ export default function CoursePage({
                   ? 'Continue chapter'
                   : 'Study chapter';
 
+            const badge = {
+              READY: { text: 'Quiz ready', cls: 'border-green-700 text-green-300' },
+              GENERATING: { text: 'Generating quiz…', cls: 'border-blue-700 text-blue-300' },
+              FAILED: { text: 'Quiz failed', cls: 'border-red-700 text-red-300' },
+              NOT_STARTED: { text: 'Quiz not started', cls: 'border-gray-700 text-gray-400' },
+            }[quizState as 'READY' | 'GENERATING' | 'FAILED' | 'NOT_STARTED'];
+
             return (
               <div
                 key={chapter.id}
                 className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3"
               >
-                <h2 className="text-xl font-semibold">{chapter.title}</h2>
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-xl font-semibold">{chapter.title}</h2>
+                  {badge && (
+                    <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badge.cls}`}>
+                      {badge.text}
+                    </span>
+                  )}
+                </div>
                 <p className="text-gray-300">{chapter.summary}</p>
 
                 {chapterProgress && (
@@ -211,12 +268,41 @@ export default function CoursePage({
                   </div>
                 )}
 
-                <a
-                  href={`/courses/${courseId}/chapters/${chapter.id}`}
-                  className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
-                >
-                  {buttonLabel}
-                </a>
+                {quizState === 'READY' && (
+                  <a
+                    href={`/courses/${courseId}/chapters/${chapter.id}`}
+                    className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
+                  >
+                    {buttonLabel}
+                  </a>
+                )}
+
+                {quizState === 'GENERATING' && (
+                  <button
+                    disabled
+                    className="inline-block rounded-lg bg-gray-700 px-4 py-2 text-gray-300 cursor-not-allowed"
+                  >
+                    Generating quiz…
+                  </button>
+                )}
+
+                {quizState === 'FAILED' && (
+                  <button
+                    onClick={() => handleRetryQuiz(chapter.id)}
+                    className="inline-block rounded-lg bg-red-500 px-4 py-2 text-white"
+                  >
+                    Retry quiz
+                  </button>
+                )}
+
+                {quizState === 'NOT_STARTED' && (
+                  <button
+                    onClick={() => handleRetryQuiz(chapter.id)}
+                    className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
+                  >
+                    Generate quiz
+                  </button>
+                )}
               </div>
             );
           })}

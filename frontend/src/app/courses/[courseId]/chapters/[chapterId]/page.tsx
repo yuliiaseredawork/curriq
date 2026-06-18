@@ -26,6 +26,8 @@ export default function ChapterPage({
   const [feedback, setFeedback] = useState<any>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  // Quiz generation state: '' | NOT_STARTED | GENERATING | READY | FAILED
+  const [quizState, setQuizState] = useState('');
 
   async function loadNext() {
     if (!userId) return;
@@ -44,24 +46,49 @@ export default function ChapterPage({
     }
   }
 
+  async function fetchQuizState(): Promise<string> {
+    const result = await api.getQuizStatus(courseId);
+    const ch = (result.chapters ?? []).find((c: any) => c.chapterId === chapterId);
+    return ch?.status ?? 'NOT_STARTED';
+  }
+
   async function ensureQuizAndLoad() {
     if (!userId) return;
     setLoading(true);
     setError('');
     try {
-      try {
-        await api.getQuiz(courseId, chapterId);
-      } catch {
-        await api.generateQuiz(courseId, chapterId);
+      const state = await fetchQuizState();
+
+      if (state === 'READY') {
+        setQuizState('READY');
+        await loadNext();
+        return;
       }
-      await loadNext();
-    } catch (e: any) {
-      setError(
-        e.message?.includes('Service Unavailable')
-          ? 'Quiz generation is taking too long. Please wait a bit and try opening this chapter again.'
-          : e.message ?? 'Failed to start chapter',
-      );
+
+      if (state === 'NOT_STARTED') {
+        // Kick off background generation, then wait.
+        await api.retryChapterQuiz(courseId, chapterId);
+        setQuizState('GENERATING');
+        setLoading(false);
+        return;
+      }
+
+      // GENERATING or FAILED — show the matching state; polling handles the rest.
+      setQuizState(state);
       setLoading(false);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to start chapter');
+      setLoading(false);
+    }
+  }
+
+  async function handleRetryQuiz() {
+    setError('');
+    setQuizState('GENERATING');
+    try {
+      await api.retryChapterQuiz(courseId, chapterId);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to start quiz generation');
     }
   }
 
@@ -88,7 +115,28 @@ export default function ChapterPage({
   useEffect(() => {
     if (!authLoaded || !userLoaded || !userId) return;
     ensureQuizAndLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoaded, userLoaded, userId]);
+
+  // While the quiz is generating, poll status and load questions once READY.
+  useEffect(() => {
+    if (quizState !== 'GENERATING') return;
+    const interval = setInterval(async () => {
+      try {
+        const state = await fetchQuizState();
+        if (state === 'READY') {
+          setQuizState('READY');
+          await loadNext();
+        } else if (state === 'FAILED') {
+          setQuizState('FAILED');
+        }
+      } catch {
+        // transient; keep polling
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizState]);
 
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
@@ -110,6 +158,24 @@ export default function ChapterPage({
         {status === 'COMPLETED' && (
           <div className="rounded-xl border border-green-700 bg-green-950 p-5">
             Chapter completed 🎉
+          </div>
+        )}
+
+        {quizState === 'GENERATING' && (
+          <div className="rounded-xl border border-blue-800 bg-blue-950/40 p-5 text-blue-200">
+            Quiz is still being generated. Please wait…
+          </div>
+        )}
+
+        {quizState === 'FAILED' && (
+          <div className="rounded-xl border border-red-700 bg-red-950 p-5 space-y-3">
+            <p className="text-red-200">Quiz generation failed for this chapter.</p>
+            <button
+              className="rounded-lg bg-red-500 px-4 py-2 text-white"
+              onClick={handleRetryQuiz}
+            >
+              Retry quiz
+            </button>
           </div>
         )}
 

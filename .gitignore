@@ -8,3 +8,6 @@ dist
 
 backend/.env
 infra/cdk.context.json
+
+# Generated eval reports (keep the dir via .gitkeep)
+backend/eval-reports/*.json

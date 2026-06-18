@@ -155,8 +155,15 @@ study.post('/next', async (c) => {
     });
   }
 
-  const { answer, source_quote, source_chunk_id, ...safeQuestion } =
-    nextQuestion;
+  // Strip anything that reveals or justifies the answer before the learner answers.
+  const {
+    answer,
+    source_quote,
+    source_chunk_id,
+    explanation,
+    misconception_target,
+    ...safeQuestion
+  } = nextQuestion;
 
   return c.json({
     status: 'NEXT_QUESTION',

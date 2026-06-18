@@ -10,6 +10,8 @@ import {
 import {
   loadOutline,
   loadQuiz,
+  loadQuizManifest,
+  updateChapterQuizStatus,
 } from '../../storage/course-artifacts';
 
 import { callCourseMetadata } from '../../courses/course-metadata-client';
@@ -362,6 +364,80 @@ courses.get('/:courseId/quizzes/:chapterId', async (c) => {
         message: `No saved quiz found for ${courseId}/${chapterId}`,
       },
       404,
+    );
+  }
+});
+
+courses.get('/:courseId/quiz-status', async (c) => {
+  const courseId = c.req.param('courseId');
+
+  try {
+    await requireCourseAccess(c, courseId);
+
+    const outline = await loadOutline(courseId);
+    const chapterIds = (outline.chapters ?? []).map((ch: any) => ch.id);
+    const manifest = await loadQuizManifest(courseId, chapterIds);
+
+    const chapters = chapterIds.map((id: string) => {
+      const record = manifest.chapters[id];
+      return {
+        chapterId: id,
+        status: record.status,
+        questionCount: record.questionCount,
+        errorMessage: record.errorMessage,
+        updatedAt: record.updatedAt,
+      };
+    });
+
+    return c.json({ courseId, chapters });
+  } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    return c.json(
+      {
+        error: 'QUIZ_STATUS_NOT_AVAILABLE',
+        message: e.message ?? 'Could not load quiz status.',
+      },
+      404,
+    );
+  }
+});
+
+courses.post('/:courseId/chapters/:chapterId/quiz/retry', async (c) => {
+  const courseId = c.req.param('courseId');
+  const chapterId = c.req.param('chapterId');
+
+  try {
+    await requireCourseAccess(c, courseId);
+
+    const outline = await loadOutline(courseId);
+    const exists = (outline.chapters ?? []).some((ch: any) => ch.id === chapterId);
+    if (!exists) {
+      return c.json({ error: 'CHAPTER_NOT_FOUND' }, 404);
+    }
+
+    await updateChapterQuizStatus(courseId, chapterId, { status: 'GENERATING' });
+
+    await lambda.send(
+      new InvokeCommand({
+        FunctionName: process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME!,
+        InvocationType: InvocationType.Event,
+        Payload: Buffer.from(JSON.stringify({ courseId, chapterId })),
+      }),
+    );
+
+    console.log('[POST quiz/retry] queued', { courseId, chapterId });
+
+    return c.json({ courseId, chapterId, status: 'GENERATING' }, 202);
+  } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    return c.json(
+      {
+        error: 'QUIZ_RETRY_FAILED',
+        message: e.message ?? 'Could not start quiz generation.',
+      },
+      500,
     );
   }
 });

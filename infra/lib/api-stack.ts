@@ -22,6 +22,7 @@ interface Props extends cdk.StackProps {
   processTranscriptFn: lambda.IFunction;
   courseMetadataFn: lambda.IFunction;
   generateCourseFn: lambda.IFunction;
+  generateChapterQuizFn: lambda.IFunction;
   userPoolId: string;
   userPoolClientId: string;
 }
@@ -56,6 +57,7 @@ export class ApiStack extends cdk.Stack {
         PROCESS_TRANSCRIPT_FUNCTION_NAME: props.processTranscriptFn.functionName,
         COURSE_METADATA_FUNCTION_NAME: props.courseMetadataFn.functionName,
         GENERATE_COURSE_FUNCTION_NAME: props.generateCourseFn.functionName,
+        GENERATE_CHAPTER_QUIZ_FUNCTION_NAME: props.generateChapterQuizFn.functionName,
         CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY ?? '',
         CLERK_JWT_KEY: process.env.CLERK_JWT_KEY ?? '',
         COGNITO_USER_POOL_ID: props.userPoolId,
@@ -73,6 +75,7 @@ export class ApiStack extends cdk.Stack {
     props.processTranscriptFn.grantInvoke(apiFn);
     props.courseMetadataFn.grantInvoke(apiFn);
     props.generateCourseFn.grantInvoke(apiFn);
+    props.generateChapterQuizFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {

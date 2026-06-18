@@ -2,7 +2,10 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "eval:retrieval": "tsx backend/src/evals/run-retrieval-eval.ts",
+    "eval:grounding": "tsx backend/src/evals/run-grounding-eval.ts",
+    "eval:quiz": "tsx backend/src/evals/run-quiz-quality-eval.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

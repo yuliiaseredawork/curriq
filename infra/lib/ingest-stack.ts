@@ -23,6 +23,7 @@ export class IngestStack extends cdk.Stack {
   public readonly searchChunksFn: lambdaNode.NodejsFunction;
   public readonly courseMetadataFn: lambdaNode.NodejsFunction;
   public readonly generateCourseFn: lambdaNode.NodejsFunction;
+  public readonly generateChapterQuizFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -101,6 +102,28 @@ export class IngestStack extends cdk.Stack {
       },
     });
 
+    this.generateChapterQuizFn = new lambdaNode.NodejsFunction(
+      this,
+      'GenerateChapterQuizFn',
+      {
+        entry: path.join(__dirname, '../../backend/src/courses/generate-chapter-quiz.ts'),
+        projectRoot: path.join(__dirname, '../..'),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        memorySize: 1024,
+        timeout: cdk.Duration.minutes(5),
+        environment: {
+          PROCESSED_BUCKET: props.processedBucket.bucketName,
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+          SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
+        },
+      },
+    );
+
+    props.processedBucket.grantReadWrite(this.generateChapterQuizFn);
+    this.searchChunksFn.grantInvoke(this.generateChapterQuizFn);
+
     this.generateCourseFn = new lambdaNode.NodejsFunction(this, 'GenerateCourseFn', {
       entry: path.join(__dirname, '../../backend/src/courses/generate-course.ts'),
       projectRoot: path.join(__dirname, '../..'),
@@ -119,6 +142,7 @@ export class IngestStack extends cdk.Stack {
         EMBED_TRANSCRIPT_FUNCTION_NAME: this.embedTranscriptFn.functionName,
         PROCESS_TRANSCRIPT_FUNCTION_NAME: this.processTranscriptFn.functionName,
         COURSE_METADATA_FUNCTION_NAME: this.courseMetadataFn.functionName,
+        GENERATE_CHAPTER_QUIZ_FUNCTION_NAME: this.generateChapterQuizFn.functionName,
       },
     });
 
@@ -129,6 +153,7 @@ export class IngestStack extends cdk.Stack {
     this.embedTranscriptFn.grantInvoke(this.generateCourseFn);
     this.processTranscriptFn.grantInvoke(this.generateCourseFn);
     this.courseMetadataFn.grantInvoke(this.generateCourseFn);
+    this.generateChapterQuizFn.grantInvoke(this.generateCourseFn);
 
     props.dbSecret.grantRead(this.courseMetadataFn);
 

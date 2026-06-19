@@ -104,6 +104,35 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
+    async requestPdfUploadUrl(fileName: string, contentType = 'application/pdf') {
+      const res = await fetch(`${API_URL}/courses/pdf/upload-url`, {
+        method: 'POST',
+        headers: await h(),
+        body: JSON.stringify({ fileName, contentType }),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    // Direct PUT to the presigned S3 URL (no app auth header).
+    async uploadFileToPresignedUrl(uploadUrl: string, file: File) {
+      const res = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/pdf' },
+        body: file,
+      });
+      if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`);
+    },
+
+    async completePdfCourse(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/pdf/complete`, {
+        method: 'POST',
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
     async getQuizStatus(courseId: string) {
       const res = await fetch(`${API_URL}/courses/${courseId}/quiz-status`, { headers: await h() });
       if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);

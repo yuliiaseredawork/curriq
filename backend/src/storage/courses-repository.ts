@@ -38,14 +38,49 @@ type CourseStatus =
   | 'READY'
   | 'FAILED';
 
+export type SourceType = 'YOUTUBE_PLAYLIST' | 'YOUTUBE_VIDEO' | 'PDF';
+
+/**
+ * Idempotent schema migration for multi-source support. Adds the source_*
+ * columns if missing and backfills existing (YouTube) courses. Safe to run
+ * repeatedly. Invoked via the courseMetadata Lambda's `migrate` action.
+ */
+export async function runMigrations() {
+  const client = await createClient();
+  try {
+    await client.query(`
+      ALTER TABLE public.courses
+        ADD COLUMN IF NOT EXISTS source_type text,
+        ADD COLUMN IF NOT EXISTS source_url text,
+        ADD COLUMN IF NOT EXISTS source_file_key text,
+        ADD COLUMN IF NOT EXISTS source_file_name text;
+    `);
+    // PDF courses have no playlist — relax the legacy NOT NULL constraint.
+    await client.query(`
+      ALTER TABLE public.courses ALTER COLUMN playlist_url DROP NOT NULL;
+    `);
+    await client.query(`
+      UPDATE public.courses
+      SET source_type = 'YOUTUBE_PLAYLIST'
+      WHERE source_type IS NULL;
+    `);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function upsertCourse(input: {
   courseId: string;
   userId: string;
   title: string;
-  playlistUrl: string;
+  playlistUrl?: string | null;
   playlistId?: string;
   status: CourseStatus;
   errorMessage?: string | null;
+  sourceType?: SourceType;
+  sourceUrl?: string | null;
+  sourceFileKey?: string | null;
+  sourceFileName?: string | null;
 }) {
   const client = await createClient();
 
@@ -60,10 +95,14 @@ export async function upsertCourse(input: {
         playlist_id,
         status,
         error_message,
+        source_type,
+        source_url,
+        source_file_key,
+        source_file_name,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
       ON CONFLICT (id)
       DO UPDATE SET
         title = EXCLUDED.title,
@@ -72,16 +111,26 @@ export async function upsertCourse(input: {
         status = EXCLUDED.status,
         error_message = EXCLUDED.error_message,
         updated_at = now(),
-        user_id = EXCLUDED.user_id
+        user_id = EXCLUDED.user_id,
+        -- Preserve existing source_* when a caller doesn't provide them
+        -- (e.g. YouTube READY upsert) so PDF metadata is never clobbered.
+        source_type = COALESCE(EXCLUDED.source_type, public.courses.source_type),
+        source_url = COALESCE(EXCLUDED.source_url, public.courses.source_url),
+        source_file_key = COALESCE(EXCLUDED.source_file_key, public.courses.source_file_key),
+        source_file_name = COALESCE(EXCLUDED.source_file_name, public.courses.source_file_name)
       `,
       [
         input.courseId,
         input.userId,
         input.title,
-        input.playlistUrl,
+        input.playlistUrl ?? null,
         input.playlistId ?? null,
         input.status,
         input.errorMessage ?? null,
+        input.sourceType ?? null,
+        input.sourceUrl ?? input.playlistUrl ?? null,
+        input.sourceFileKey ?? null,
+        input.sourceFileName ?? null,
       ],
     );
   } finally {
@@ -126,6 +175,9 @@ export async function listCourses(userId: string) {
         playlist_id,
         status,
         error_message,
+        source_type,
+        source_url,
+        source_file_name,
         created_at,
         updated_at
       FROM public.courses
@@ -146,6 +198,9 @@ export async function listCourses(userId: string) {
       updatedAt: r.updated_at,
       errorMessage: r.error_message,
       userId: r.user_id,
+      sourceType: r.source_type ?? 'YOUTUBE_PLAYLIST',
+      sourceUrl: r.source_url,
+      sourceFileName: r.source_file_name,
     }));
   } finally {
     await client.end();
@@ -207,6 +262,10 @@ export async function getCourseMetadataForUser(input: {
         playlist_id,
         status,
         error_message,
+        source_type,
+        source_url,
+        source_file_key,
+        source_file_name,
         created_at,
         updated_at
       FROM public.courses
@@ -228,6 +287,10 @@ export async function getCourseMetadataForUser(input: {
       playlistId: r.playlist_id,
       status: r.status,
       errorMessage: r.error_message,
+      sourceType: r.source_type ?? 'YOUTUBE_PLAYLIST',
+      sourceUrl: r.source_url,
+      sourceFileKey: r.source_file_key,
+      sourceFileName: r.source_file_name,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };

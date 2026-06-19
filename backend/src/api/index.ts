@@ -8,6 +8,7 @@ import { study } from './routes/study';
 import { cors } from 'hono/cors';
 import { courseProcessing } from './routes/course-processing';
 import { practice } from './routes/practice';
+import { coursesPdf } from './routes/courses-pdf';
 import { UnauthorizedError } from '../auth/current-user';
 
 const app = new Hono();
@@ -30,11 +31,26 @@ app.use(
   }),
 );
 
+// Temporary structured request logging — confirms requests reach Lambda and
+// which route matched. Safe to remove once routing/CORS is confirmed stable.
+app.use('*', async (c, next) => {
+  const start = Date.now();
+  await next();
+  console.log('[req]', {
+    method: c.req.method,
+    path: c.req.path,
+    route: c.req.routePath,
+    status: c.res.status,
+    ms: Date.now() - start,
+  });
+});
+
 app.get('/health', (c) => {
   return c.json({ status: 'ok' });
 });
 
 app.route('/courses', courses);
+app.route('/courses', coursesPdf);
 app.route('/search', search);
 app.route('/outline', outline);
 app.route('/quizzes', quizzes);

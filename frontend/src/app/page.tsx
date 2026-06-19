@@ -17,6 +17,9 @@ export default function Home() {
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [error, setError] = useState('');
   const [courses, setCourses] = useState<any[]>([]);
+  const [sourceTab, setSourceTab] = useState<'youtube' | 'pdf'>('youtube');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfStatus, setPdfStatus] = useState('');
 
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
 
@@ -58,6 +61,31 @@ export default function Home() {
     }
   }
 
+  async function handlePdfUpload() {
+    if (!pdfFile) return;
+    setLoading(true);
+    setError('');
+    setPdfStatus('Uploading PDF…');
+    try {
+      const reserved = await api.requestPdfUploadUrl(
+        pdfFile.name,
+        pdfFile.type || 'application/pdf',
+      );
+      await api.uploadFileToPresignedUrl(reserved.uploadUrl, pdfFile);
+      setPdfStatus('Processing PDF & generating outline…');
+      await api.completePdfCourse(reserved.courseId);
+      await waitForCourseReady(reserved.courseId);
+      setPdfStatus('Quizzes generating in background.');
+      setPdfFile(null);
+      await loadCourses();
+    } catch (e: any) {
+      setError(e.message ?? 'PDF course generation failed');
+    } finally {
+      setLoading(false);
+      setPdfStatus('');
+    }
+  }
+
   useEffect(() => {
     if (!isLoaded) return;
 
@@ -87,7 +115,7 @@ export default function Home() {
             <div>
               <h1 className="text-4xl font-bold">Curriq</h1>
               <p className="text-gray-300 mt-4">
-                Turn a YouTube playlist into an adaptive AI course.
+                Turn a YouTube playlist or a PDF into an adaptive AI course.
               </p>
             </div>
 
@@ -104,25 +132,68 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <input
-              className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-4 py-3"
-              placeholder="Paste YouTube playlist URL"
-              value={playlistUrl}
-              onChange={(e) => setPlaylistUrl(e.target.value)}
-            />
+          <div className="flex gap-2">
             <button
-              className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
-              onClick={handleGenerate}
-              disabled={loading || !playlistUrl}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                sourceTab === 'youtube'
+                  ? 'bg-white text-black'
+                  : 'bg-gray-900 text-gray-300 border border-gray-700'
+              }`}
+              onClick={() => setSourceTab('youtube')}
             >
-              {loading ? 'Generating...' : 'Generate'}
+              YouTube playlist
+            </button>
+            <button
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                sourceTab === 'pdf'
+                  ? 'bg-white text-black'
+                  : 'bg-gray-900 text-gray-300 border border-gray-700'
+              }`}
+              onClick={() => setSourceTab('pdf')}
+            >
+              Upload PDF
             </button>
           </div>
 
+          {sourceTab === 'youtube' ? (
+            <div className="flex gap-3">
+              <input
+                className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-4 py-3"
+                placeholder="Paste YouTube playlist URL"
+                value={playlistUrl}
+                onChange={(e) => setPlaylistUrl(e.target.value)}
+              />
+              <button
+                className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
+                onClick={handleGenerate}
+                disabled={loading || !playlistUrl}
+              >
+                {loading ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-3 items-center">
+              <input
+                type="file"
+                accept="application/pdf"
+                className="flex-1 text-sm text-gray-300 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-800 file:px-4 file:py-2 file:text-white"
+                onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+              />
+              <button
+                className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
+                onClick={handlePdfUpload}
+                disabled={loading || !pdfFile}
+              >
+                {loading ? 'Working…' : 'Upload and generate course'}
+              </button>
+            </div>
+          )}
+
           {loading && (
             <p className="text-sm text-gray-400">
-              Generating course in the background. This may take a minute...
+              {sourceTab === 'pdf' && pdfStatus
+                ? pdfStatus
+                : 'Generating course in the background. This may take a minute...'}
             </p>
           )}
 
@@ -162,10 +233,19 @@ export default function Home() {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
-                    <h3 className="text-lg font-semibold">
-                      {course.title ?? 'Untitled course'}
-                    </h3>
-                    <p className="text-sm text-gray-400">{course.playlistUrl}</p>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold">
+                        {course.title ?? 'Untitled course'}
+                      </h3>
+                      <span className="shrink-0 rounded-full border border-gray-700 px-2 py-0.5 text-xs text-gray-400">
+                        {course.sourceType === 'PDF' ? 'PDF' : 'YouTube'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-400">
+                      {course.sourceType === 'PDF'
+                        ? course.sourceFileName
+                        : course.playlistUrl}
+                    </p>
                   </div>
                   <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
                     {course.status}

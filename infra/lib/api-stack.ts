@@ -23,6 +23,7 @@ interface Props extends cdk.StackProps {
   courseMetadataFn: lambda.IFunction;
   generateCourseFn: lambda.IFunction;
   generateChapterQuizFn: lambda.IFunction;
+  generateCourseFromPdfFn: lambda.IFunction;
   userPoolId: string;
   userPoolClientId: string;
 }
@@ -58,6 +59,7 @@ export class ApiStack extends cdk.Stack {
         COURSE_METADATA_FUNCTION_NAME: props.courseMetadataFn.functionName,
         GENERATE_COURSE_FUNCTION_NAME: props.generateCourseFn.functionName,
         GENERATE_CHAPTER_QUIZ_FUNCTION_NAME: props.generateChapterQuizFn.functionName,
+        GENERATE_COURSE_FROM_PDF_FUNCTION_NAME: props.generateCourseFromPdfFn.functionName,
         CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY ?? '',
         CLERK_JWT_KEY: process.env.CLERK_JWT_KEY ?? '',
         COGNITO_USER_POOL_ID: props.userPoolId,
@@ -76,6 +78,7 @@ export class ApiStack extends cdk.Stack {
     props.courseMetadataFn.grantInvoke(apiFn);
     props.generateCourseFn.grantInvoke(apiFn);
     props.generateChapterQuizFn.grantInvoke(apiFn);
+    props.generateCourseFromPdfFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {
@@ -101,15 +104,11 @@ export class ApiStack extends cdk.Stack {
       integration: new integrations.HttpLambdaIntegration('RootApiIntegration', apiFn),
     });
 
-    httpApi.addRoutes({
-      path: '/courses',
-      methods: [
-        apigw.HttpMethod.GET,
-        apigw.HttpMethod.POST,
-        apigw.HttpMethod.OPTIONS,
-      ],
-      integration: new integrations.HttpLambdaIntegration('CoursesIntegration', apiFn),
-    });
+    // NOTE: no explicit '/courses' route — it (and all sub-paths like
+    // /courses/:id/status, /quiz-status, /pdf/*) are served by the '/{proxy+}'
+    // ANY integration above, and OPTIONS preflight is answered by API Gateway's
+    // managed CORS. Keeping a separate explicit OPTIONS route here would be the
+    // only path that forwards preflight to Lambda, so it is intentionally omitted.
 
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: httpApi.url!,

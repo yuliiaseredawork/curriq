@@ -65,6 +65,15 @@ export class DataStack extends cdk.Stack {
       lifecycleRules: [{ expiration: cdk.Duration.days(90) }],
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      // Allow browser PUT to presigned URLs (PDF upload from the frontend).
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          maxAge: 3000,
+        },
+      ],
     });
 
     this.processedBucket = new s3.Bucket(this, 'Processed', {

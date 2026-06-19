@@ -24,6 +24,7 @@ export class IngestStack extends cdk.Stack {
   public readonly courseMetadataFn: lambdaNode.NodejsFunction;
   public readonly generateCourseFn: lambdaNode.NodejsFunction;
   public readonly generateChapterQuizFn: lambdaNode.NodejsFunction;
+  public readonly generateCourseFromPdfFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -154,6 +155,38 @@ export class IngestStack extends cdk.Stack {
     this.processTranscriptFn.grantInvoke(this.generateCourseFn);
     this.courseMetadataFn.grantInvoke(this.generateCourseFn);
     this.generateChapterQuizFn.grantInvoke(this.generateCourseFn);
+
+    // PDF course generation (non-VPC: needs internet for OpenAI/Anthropic;
+    // delegates the in-VPC pgvector insert to ProcessTranscriptFn).
+    this.generateCourseFromPdfFn = new lambdaNode.NodejsFunction(
+      this,
+      'GenerateCourseFromPdfFn',
+      {
+        entry: path.join(__dirname, '../../backend/src/courses/generate-course-from-pdf.ts'),
+        projectRoot: path.join(__dirname, '../..'),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        memorySize: 1024,
+        timeout: cdk.Duration.minutes(10),
+        environment: {
+          RAW_BUCKET: props.rawBucket.bucketName,
+          PROCESSED_BUCKET: props.processedBucket.bucketName,
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+          SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
+          PROCESS_TRANSCRIPT_FUNCTION_NAME: this.processTranscriptFn.functionName,
+          COURSE_METADATA_FUNCTION_NAME: this.courseMetadataFn.functionName,
+          GENERATE_CHAPTER_QUIZ_FUNCTION_NAME: this.generateChapterQuizFn.functionName,
+        },
+      },
+    );
+
+    props.rawBucket.grantRead(this.generateCourseFromPdfFn);
+    props.processedBucket.grantReadWrite(this.generateCourseFromPdfFn);
+    this.searchChunksFn.grantInvoke(this.generateCourseFromPdfFn);
+    this.processTranscriptFn.grantInvoke(this.generateCourseFromPdfFn);
+    this.courseMetadataFn.grantInvoke(this.generateCourseFromPdfFn);
+    this.generateChapterQuizFn.grantInvoke(this.generateCourseFromPdfFn);
 
     props.dbSecret.grantRead(this.courseMetadataFn);
 

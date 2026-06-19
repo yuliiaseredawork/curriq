@@ -26,6 +26,8 @@ export default function ChapterPage({
   const [feedback, setFeedback] = useState<any>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
   // Quiz generation state: '' | NOT_STARTED | GENERATING | READY | FAILED
   const [quizState, setQuizState] = useState('');
 
@@ -39,6 +41,7 @@ export default function ChapterPage({
       const next = await api.getNextQuestion({ userId, courseId, chapterId });
       setStatus(next.status);
       setQuestion(next.question ?? null);
+      setProgress(next.progress ?? null);
     } catch (e: any) {
       setError(e.message ?? 'Failed to load next question');
     } finally {
@@ -94,7 +97,7 @@ export default function ChapterPage({
 
   async function handleSubmit() {
     if (!question || !answer || !userId) return;
-    setLoading(true);
+    setSubmitting(true);
     setError('');
     try {
       const result = await api.submitAnswer({
@@ -108,7 +111,7 @@ export default function ChapterPage({
     } catch (e: any) {
       setError(e.message ?? 'Failed to submit answer');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -138,6 +141,15 @@ export default function ChapterPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quizState]);
 
+  // Normalized progress (tolerant of old/new /study/next shapes).
+  const totalQ = progress?.totalQuestions ?? 0;
+  const answeredQ = progress?.answeredQuestions ?? progress?.answeredCount ?? 0;
+  const currentQ = progress?.currentQuestionNumber ?? answeredQ + 1;
+  const remainingQ = progress?.remainingQuestions ?? Math.max(totalQ - answeredQ, 0);
+  const percentQ =
+    progress?.completionPercent ??
+    (totalQ > 0 ? Math.round((answeredQ / totalQ) * 100) : 0);
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -152,6 +164,26 @@ export default function ChapterPage({
         {error && (
           <div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">
             {error}
+          </div>
+        )}
+
+        {progress && totalQ > 0 && (
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">
+                {status === 'COMPLETED'
+                  ? `${totalQ} of ${totalQ} questions`
+                  : `Question ${currentQ} of ${totalQ}`}
+              </span>
+              <span className="text-gray-400">{remainingQ} remaining</span>
+            </div>
+            <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+              <div
+                className="h-full bg-blue-500 transition-all"
+                style={{ width: `${percentQ}%` }}
+              />
+            </div>
+            <div className="text-xs text-gray-500">{percentQ}% complete</div>
           </div>
         )}
 
@@ -192,11 +224,12 @@ export default function ChapterPage({
                 {question.choices.map((choice: string) => (
                   <button
                     key={choice}
-                    className={`block w-full text-left rounded-lg border px-4 py-3 ${
+                    disabled={submitting || !!feedback}
+                    className={`block w-full text-left rounded-lg border px-4 py-3 disabled:cursor-not-allowed ${
                       answer === choice
                         ? 'border-blue-500 bg-blue-950'
                         : 'border-gray-700 bg-gray-950'
-                    }`}
+                    } ${submitting && answer !== choice ? 'opacity-50' : ''}`}
                     onClick={() => setAnswer(choice)}
                   >
                     {choice}
@@ -205,10 +238,11 @@ export default function ChapterPage({
               </div>
             ) : (
               <textarea
-                className="w-full rounded-lg bg-gray-950 border border-gray-700 px-4 py-3"
+                className="w-full rounded-lg bg-gray-950 border border-gray-700 px-4 py-3 disabled:opacity-60"
                 rows={4}
                 placeholder="Write your answer..."
                 value={answer}
+                disabled={submitting || !!feedback}
                 onChange={(e) => setAnswer(e.target.value)}
               />
             )}
@@ -217,10 +251,16 @@ export default function ChapterPage({
               <button
                 className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
                 onClick={handleSubmit}
-                disabled={!answer || loading}
+                disabled={!answer || submitting}
               >
-                Submit answer
+                {submitting ? 'Checking your answer…' : 'Submit answer'}
               </button>
+            )}
+
+            {submitting && (
+              <p className="text-sm text-gray-400 animate-pulse">
+                Checking your answer…
+              </p>
             )}
 
             {feedback && (

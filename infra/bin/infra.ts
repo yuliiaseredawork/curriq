@@ -50,6 +50,7 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   courseMetadataFn: ingest.courseMetadataFn,
   generateCourseFn: ingest.generateCourseFn,
   generateChapterQuizFn: ingest.generateChapterQuizFn,
+  generateCourseFromPdfFn: ingest.generateCourseFromPdfFn,
   userPoolId: auth.userPool.userPoolId,
   userPoolClientId: auth.userPoolClient.userPoolClientId,
 });

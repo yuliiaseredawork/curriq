@@ -133,6 +133,34 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
+    async getFocusAreas(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/focus-areas`, { headers: await h() });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async startFocusSession(courseId: string, conceptSlug: string) {
+      const res = await fetch(
+        `${API_URL}/courses/${courseId}/focus-areas/${encodeURIComponent(conceptSlug)}/session`,
+        { method: 'POST', headers: await h() },
+      );
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return { status: res.status, body: await res.json() };
+    },
+
+    async submitFocusAnswer(
+      courseId: string,
+      conceptSlug: string,
+      input: { questionId: string; userAnswer: string },
+    ) {
+      const res = await fetch(
+        `${API_URL}/courses/${courseId}/focus-areas/${encodeURIComponent(conceptSlug)}/answer`,
+        { method: 'POST', headers: await h(), body: JSON.stringify(input) },
+      );
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
     async getQuizStatus(courseId: string) {
       const res = await fetch(`${API_URL}/courses/${courseId}/quiz-status`, { headers: await h() });
       if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);

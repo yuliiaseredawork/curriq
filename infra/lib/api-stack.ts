@@ -18,12 +18,14 @@ interface Props extends cdk.StackProps {
   searchChunksFn: lambda.IFunction;
   progressTable: ddb.Table;
   mistakesTable: ddb.Table;
+  focusAreasTable: ddb.Table;
   embedTranscriptFn: lambda.IFunction;
   processTranscriptFn: lambda.IFunction;
   courseMetadataFn: lambda.IFunction;
   generateCourseFn: lambda.IFunction;
   generateChapterQuizFn: lambda.IFunction;
   generateCourseFromPdfFn: lambda.IFunction;
+  generateRemediationFn: lambda.IFunction;
   userPoolId: string;
   userPoolClientId: string;
 }
@@ -54,6 +56,8 @@ export class ApiStack extends cdk.Stack {
         PROCESSED_BUCKET: props.processedBucket.bucketName,
         PROGRESS_TABLE: props.progressTable.tableName,
         MISTAKES_TABLE: props.mistakesTable.tableName,
+        FOCUS_AREAS_TABLE: props.focusAreasTable.tableName,
+        GENERATE_REMEDIATION_FUNCTION_NAME: props.generateRemediationFn.functionName,
         EMBED_TRANSCRIPT_FUNCTION_NAME: props.embedTranscriptFn.functionName,
         PROCESS_TRANSCRIPT_FUNCTION_NAME: props.processTranscriptFn.functionName,
         COURSE_METADATA_FUNCTION_NAME: props.courseMetadataFn.functionName,
@@ -73,12 +77,14 @@ export class ApiStack extends cdk.Stack {
     props.processedBucket.grantReadWrite(apiFn);
     props.progressTable.grantReadWriteData(apiFn);
     props.mistakesTable.grantReadWriteData(apiFn);
+    props.focusAreasTable.grantReadWriteData(apiFn);
     props.embedTranscriptFn.grantInvoke(apiFn);
     props.processTranscriptFn.grantInvoke(apiFn);
     props.courseMetadataFn.grantInvoke(apiFn);
     props.generateCourseFn.grantInvoke(apiFn);
     props.generateChapterQuizFn.grantInvoke(apiFn);
     props.generateCourseFromPdfFn.grantInvoke(apiFn);
+    props.generateRemediationFn.grantInvoke(apiFn);
 
     const httpApi = new apigw.HttpApi(this, 'HttpApi', {
       corsPreflight: {

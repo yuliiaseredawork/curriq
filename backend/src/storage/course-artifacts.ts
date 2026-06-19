@@ -233,6 +233,52 @@ export async function loadQuizManifest(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Pre-generated remediation question sets (Focus Areas V2), keyed by concept
+// slug so practice can open instantly without on-click generation.
+// ---------------------------------------------------------------------------
+
+export function remediationKey(courseId: string, conceptSlug: string) {
+  return `courses/${courseId}/remediation/${conceptSlug}.json`;
+}
+
+export async function saveRemediationSet(
+  courseId: string,
+  conceptSlug: string,
+  set: unknown,
+) {
+  const key = remediationKey(courseId, conceptSlug);
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: process.env.PROCESSED_BUCKET!,
+      Key: key,
+      Body: JSON.stringify(set, null, 2),
+      ContentType: 'application/json',
+    }),
+  );
+  return { key };
+}
+
+export async function loadRemediationSet(
+  courseId: string,
+  conceptSlug: string,
+): Promise<any | null> {
+  try {
+    const obj = await s3.send(
+      new GetObjectCommand({
+        Bucket: process.env.PROCESSED_BUCKET!,
+        Key: remediationKey(courseId, conceptSlug),
+      }),
+    );
+    return JSON.parse(await obj.Body!.transformToString());
+  } catch (e: any) {
+    if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    throw e;
+  }
+}
+
 export function practiceKey(courseId: string, practiceId: string) {
   return `courses/${courseId}/practice/${practiceId}.json`;
 }

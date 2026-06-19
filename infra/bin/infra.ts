@@ -36,6 +36,8 @@ const ingest = new IngestStack(app, `Curriq-Ingest-${stage}`, {
   processedBucket: data.processedBucket,
   db: data.db,
   dbSecret: data.dbSecret,
+  focusAreasTable: data.focusAreasTable,
+  mistakesTable: data.mistakesTable,
 });
 new ApiStack(app, `Curriq-Api-${stage}`, {
   env,
@@ -45,12 +47,14 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   processedBucket: data.processedBucket,
   progressTable: data.progressTable,
   mistakesTable: data.mistakesTable,
+  focusAreasTable: data.focusAreasTable,
   embedTranscriptFn: ingest.embedTranscriptFn,
   processTranscriptFn: ingest.processTranscriptFn,
   courseMetadataFn: ingest.courseMetadataFn,
   generateCourseFn: ingest.generateCourseFn,
   generateChapterQuizFn: ingest.generateChapterQuizFn,
   generateCourseFromPdfFn: ingest.generateCourseFromPdfFn,
+  generateRemediationFn: ingest.generateRemediationFn,
   userPoolId: auth.userPool.userPoolId,
   userPoolClientId: auth.userPoolClient.userPoolClientId,
 });

@@ -10,6 +10,27 @@ import {
 } from '../../storage/study-state';
 import { getCurrentUserId } from '../../auth/current-user';
 import { callCourseMetadata } from '../../courses/course-metadata-client';
+import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lambda';
+
+const lambda = new LambdaClient({});
+
+/**
+ * On a recorded mistake, (re)consolidate the learner's focus areas in the
+ * background: the consolidation job reads all mistakes, merges raw concepts
+ * into canonical focus areas, and pre-generates remediation. Best-effort —
+ * never blocks/fails answer submission.
+ */
+async function fireConsolidation(courseId: string, userId: string) {
+  const fn = process.env.GENERATE_REMEDIATION_FUNCTION_NAME;
+  if (!fn) return;
+  await lambda.send(
+    new InvokeCommand({
+      FunctionName: fn,
+      InvocationType: InvocationType.Event,
+      Payload: Buffer.from(JSON.stringify({ courseId, userId })),
+    }),
+  );
+}
 
 const AnswerInput = z.object({
   courseId: z.string(),
@@ -159,6 +180,7 @@ study.post('/answer', async (c) => {
   });
 
   if (!feedback.correct) {
+    const conceptTags = feedback.concept_tags ?? question.concept_tags ?? [];
     await saveMistake({
       userId,
       courseId: input.courseId,
@@ -166,9 +188,16 @@ study.post('/answer', async (c) => {
       questionId: input.questionId,
       userAnswer: input.userAnswer,
       correctAnswer: question.answer,
-      conceptTags: feedback.concept_tags,
+      conceptTags,
       explanation: feedback.explanation,
     });
+
+    // Re-consolidate focus areas + pre-generate remediation (best-effort).
+    try {
+      await fireConsolidation(input.courseId, userId);
+    } catch (e: any) {
+      console.error('[study/answer] consolidation trigger failed', String(e?.message ?? e));
+    }
   }
 
   return c.json({

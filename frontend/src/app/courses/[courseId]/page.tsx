@@ -26,9 +26,23 @@ export default function CoursePage({
   const [progress, setProgress] = useState<any>(null);
   const [error, setError] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
-  const [weakConcepts, setWeakConcepts] = useState<any[]>([]);
-  const [practiceLoadingConcept, setPracticeLoadingConcept] = useState<string | null>(null);
+  const [focusAreas, setFocusAreas] = useState<any[]>([]);
+  const [masteredAreas, setMasteredAreas] = useState<any[]>([]);
+  const [focusPreparing, setFocusPreparing] = useState(false);
+  const [showMastered, setShowMastered] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [quizStatus, setQuizStatus] = useState<Record<string, any>>({});
+
+  async function loadFocusAreas() {
+    try {
+      const res = await api.getFocusAreas(courseId);
+      setFocusAreas(res.active ?? []);
+      setMasteredAreas(res.mastered ?? []);
+      setFocusPreparing(!!res.preparing);
+    } catch {
+      // best-effort
+    }
+  }
 
   async function loadQuizStatus() {
     try {
@@ -47,15 +61,14 @@ export default function CoursePage({
     Promise.all([
       api.getCourse(courseId),
       api.getCourseProgress(courseId, userId),
-      api.getWeakConcepts(courseId, userId),
     ])
-      .then(([courseResult, progressResult, weakConceptsResult]) => {
+      .then(([courseResult, progressResult]) => {
         setCourse(courseResult);
         setProgress(progressResult);
-        setWeakConcepts(weakConceptsResult.weakConcepts ?? []);
       })
       .catch((e) => setError(e.message ?? 'Failed to load course'));
 
+    loadFocusAreas();
     loadQuizStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, authLoaded, userLoaded, userId]);
@@ -71,6 +84,14 @@ export default function CoursePage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quizStatus]);
 
+  // Poll focus areas while consolidation is preparing them.
+  useEffect(() => {
+    if (!focusPreparing) return;
+    const interval = setInterval(loadFocusAreas, 4000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPreparing]);
+
   async function handleRetryQuiz(chapterId: string) {
     setQuizStatus((prev) => ({
       ...prev,
@@ -85,17 +106,8 @@ export default function CoursePage({
     }
   }
 
-  async function handlePracticeConcept(concept: string) {
-    setPracticeLoadingConcept(concept);
-    setError('');
-    try {
-      const result = await api.generatePractice({ courseId, concept, limit: 5 });
-      router.push(`/courses/${courseId}/practice/${result.practiceId}`);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to generate practice');
-    } finally {
-      setPracticeLoadingConcept(null);
-    }
+  function handleOpenFocus(conceptSlug: string) {
+    router.push(`/courses/${courseId}/focus/${encodeURIComponent(conceptSlug)}`);
   }
 
   async function handleContinue() {
@@ -174,32 +186,102 @@ export default function CoursePage({
           </div>
         )}
 
-        {weakConcepts.length > 0 && (
+        {(focusAreas.length > 0 || focusPreparing) && (
           <div className="rounded-xl border border-yellow-800 bg-yellow-950/30 p-5 space-y-3">
             <div>
               <div className="text-sm text-yellow-300">Focus areas</div>
-              <h2 className="text-xl font-semibold">Concepts to review</h2>
+              <h2 className="text-xl font-semibold">What to work on next</h2>
             </div>
-            <div className="space-y-2">
-              {weakConcepts.map((item) => (
-                <div
-                  key={item.concept}
-                  className="flex items-center justify-between rounded-lg bg-gray-950 border border-gray-800 px-4 py-3"
-                >
-                  <span>{item.concept}</span>
-                  <span className="text-sm text-gray-400">
-                    {item.mistakeCount} mistake{item.mistakeCount === 1 ? '' : 's'}
-                  </span>
-                  <button
-                    className="rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-black disabled:opacity-50"
-                    onClick={() => handlePracticeConcept(item.concept)}
-                    disabled={practiceLoadingConcept === item.concept}
+
+            {focusPreparing && focusAreas.length === 0 && (
+              <p className="text-sm text-gray-300">
+                Analyzing your mistakes to find your key learning gaps…
+              </p>
+            )}
+
+            <div className="space-y-3">
+              {(showMore ? focusAreas : focusAreas.slice(0, 5)).map((item) => {
+                const inProgress = item.sessionStatus === 'IN_PROGRESS';
+                const trendStr =
+                  item.trend > 0 ? `+${item.trend}%` : item.trend < 0 ? `${item.trend}%` : null;
+                return (
+                  <div
+                    key={item.conceptSlug}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-gray-950 border border-gray-800 px-4 py-3"
                   >
-                    {practiceLoadingConcept === item.concept ? 'Generating...' : 'Practice'}
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0 space-y-1">
+                      <div className="font-medium">{item.title}</div>
+                      {item.shortDescription && (
+                        <div className="text-sm text-gray-400">{item.shortDescription}</div>
+                      )}
+                      <div className="text-xs text-gray-500">
+                        Mastery {item.masteryScore}%
+                        {trendStr && (
+                          <span className={item.trend >= 0 ? 'text-green-400' : 'text-red-400'}>
+                            {' '}· {trendStr} this week
+                          </span>
+                        )}
+                        {item.lastPracticedAt && (
+                          <span> · last practiced {new Date(item.lastPracticedAt).toLocaleDateString()}</span>
+                        )}
+                      </div>
+                      <div className="h-1.5 w-40 rounded-full bg-gray-800 overflow-hidden">
+                        <div className="h-full bg-yellow-400" style={{ width: `${item.masteryScore}%` }} />
+                      </div>
+                      {item.rawConcepts?.length > 0 && (
+                        <div className="text-xs text-gray-600">
+                          Covers: {item.rawConcepts.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="shrink-0 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-black disabled:opacity-50"
+                      onClick={() => handleOpenFocus(item.conceptSlug)}
+                      disabled={!item.remediationReady && !inProgress}
+                    >
+                      {inProgress
+                        ? 'Resume Practice'
+                        : item.remediationReady
+                          ? 'Practice'
+                          : 'Preparing…'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
+
+            {focusAreas.length > 5 && (
+              <button
+                className="text-sm text-yellow-300"
+                onClick={() => setShowMore((s) => !s)}
+              >
+                {showMore ? 'Show fewer' : `More areas to review (${focusAreas.length - 5})`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {masteredAreas.length > 0 && (
+          <div className="rounded-xl border border-green-900 bg-green-950/20 p-4">
+            <button
+              className="text-sm text-green-300"
+              onClick={() => setShowMastered((s) => !s)}
+            >
+              {showMastered ? '▾' : '▸'} Mastered concepts ({masteredAreas.length})
+            </button>
+            {showMastered && (
+              <div className="mt-3 space-y-2">
+                {masteredAreas.map((item) => (
+                  <div
+                    key={item.conceptSlug}
+                    className="flex items-center justify-between rounded-lg bg-gray-950 border border-gray-800 px-4 py-2 text-sm"
+                  >
+                    <span className="truncate">{item.title}</span>
+                    <span className="text-green-400">Mastery {item.masteryScore}% ✓</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

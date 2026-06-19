@@ -9,6 +9,7 @@ import { cors } from 'hono/cors';
 import { courseProcessing } from './routes/course-processing';
 import { practice } from './routes/practice';
 import { coursesPdf } from './routes/courses-pdf';
+import { focusAreas } from './routes/focus-areas';
 import { UnauthorizedError } from '../auth/current-user';
 
 const app = new Hono();
@@ -51,6 +52,7 @@ app.get('/health', (c) => {
 
 app.route('/courses', courses);
 app.route('/courses', coursesPdf);
+app.route('/courses', focusAreas);
 app.route('/search', search);
 app.route('/outline', outline);
 app.route('/quizzes', quizzes);

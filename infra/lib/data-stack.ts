@@ -24,6 +24,7 @@ export class DataStack extends cdk.Stack {
   public readonly quizzesTable: ddb.Table;
   public readonly progressTable: ddb.Table;
   public readonly mistakesTable: ddb.Table;
+  public readonly focusAreasTable: ddb.Table;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -125,6 +126,14 @@ export class DataStack extends cdk.Stack {
       indexName: 'byConcept',
       partitionKey: { name: 'userId', type: ddb.AttributeType.STRING },
       sortKey: { name: 'concept', type: ddb.AttributeType.STRING },
+    });
+
+    // Focus Areas V2: per-user concept mastery records + resumable practice
+    // sessions (pk=USER#<id>, sk=COURSE#<id>#MASTERY|SESSION#<slug>).
+    this.focusAreasTable = new ddb.Table(this, 'FocusAreas', {
+      partitionKey: { name: 'pk', type: ddb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: ddb.AttributeType.STRING },
+      billingMode: ddb.BillingMode.PAY_PER_REQUEST,
     });
   }
 }

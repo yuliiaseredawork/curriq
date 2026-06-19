@@ -8,6 +8,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sm from 'aws-cdk-lib/aws-secretsmanager';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaNode from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as ddb from 'aws-cdk-lib/aws-dynamodb';
 
 interface Props extends cdk.StackProps {
   vpc: ec2.Vpc;
@@ -15,6 +16,8 @@ interface Props extends cdk.StackProps {
   processedBucket: s3.Bucket;
   db: rds.DatabaseInstance;
   dbSecret: sm.ISecret;
+  focusAreasTable: ddb.Table;
+  mistakesTable: ddb.Table;
 }
 
 export class IngestStack extends cdk.Stack {
@@ -25,6 +28,7 @@ export class IngestStack extends cdk.Stack {
   public readonly generateCourseFn: lambdaNode.NodejsFunction;
   public readonly generateChapterQuizFn: lambdaNode.NodejsFunction;
   public readonly generateCourseFromPdfFn: lambdaNode.NodejsFunction;
+  public readonly generateRemediationFn: lambdaNode.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -187,6 +191,33 @@ export class IngestStack extends cdk.Stack {
     this.processTranscriptFn.grantInvoke(this.generateCourseFromPdfFn);
     this.courseMetadataFn.grantInvoke(this.generateCourseFromPdfFn);
     this.generateChapterQuizFn.grantInvoke(this.generateCourseFromPdfFn);
+
+    // Focus Areas V2: pre-generate remediation question sets (non-VPC).
+    this.generateRemediationFn = new lambdaNode.NodejsFunction(
+      this,
+      'GenerateRemediationFn',
+      {
+        entry: path.join(__dirname, '../../backend/src/courses/generate-remediation.ts'),
+        projectRoot: path.join(__dirname, '../..'),
+        handler: 'handler',
+        runtime: lambda.Runtime.NODEJS_20_X,
+        memorySize: 1024,
+        timeout: cdk.Duration.minutes(5),
+        environment: {
+          PROCESSED_BUCKET: props.processedBucket.bucketName,
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+          SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
+          FOCUS_AREAS_TABLE: props.focusAreasTable.tableName,
+          MISTAKES_TABLE: props.mistakesTable.tableName,
+        },
+      },
+    );
+
+    props.processedBucket.grantReadWrite(this.generateRemediationFn);
+    this.searchChunksFn.grantInvoke(this.generateRemediationFn);
+    props.focusAreasTable.grantReadWriteData(this.generateRemediationFn);
+    props.mistakesTable.grantReadData(this.generateRemediationFn);
 
     props.dbSecret.grantRead(this.courseMetadataFn);
 

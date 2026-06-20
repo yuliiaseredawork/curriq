@@ -4,6 +4,8 @@ import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
+import { ScannableText } from '@/components/ScannableText';
+import { extractKeyTerms, titleTerms } from '@/lib/highlightTerms';
 
 export default function CoursePage({
   params,
@@ -155,6 +157,14 @@ export default function CoursePage({
     );
   }
 
+  // Highlight terms are derived from visible text + existing metadata (no AI).
+  // Course-title words are deprioritized so the broad course name doesn't
+  // dominate; focus-area concepts are always eligible.
+  const courseTitleWords = titleTerms(course.outline?.title);
+  const focusRawConcepts = [...focusAreas, ...masteredAreas].flatMap(
+    (fa) => fa.rawConcepts ?? [],
+  );
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -212,7 +222,15 @@ export default function CoursePage({
                     <div className="min-w-0 space-y-1">
                       <div className="font-medium">{item.title}</div>
                       {item.shortDescription && (
-                        <div className="text-sm text-gray-400">{item.shortDescription}</div>
+                        <ScannableText
+                          text={item.shortDescription}
+                          keyTerms={extractKeyTerms({
+                            text: item.shortDescription,
+                            explicit: item.rawConcepts ?? [],
+                            deprioritize: courseTitleWords,
+                          })}
+                          className="text-sm text-gray-400"
+                        />
                       )}
                       <div className="text-xs text-gray-500">
                         Mastery {item.masteryScore}%
@@ -329,7 +347,17 @@ export default function CoursePage({
                     </span>
                   )}
                 </div>
-                <p className="text-gray-300">{chapter.summary}</p>
+                <ScannableText
+                  text={chapter.summary}
+                  keyTerms={extractKeyTerms({
+                    text: chapter.summary,
+                    emphasize: titleTerms(chapter.title),
+                    explicit: focusRawConcepts,
+                    deprioritize: courseTitleWords,
+                  })}
+                  clampChars={280}
+                  className="text-gray-300"
+                />
 
                 {chapterProgress && (
                   <div className="space-y-2">

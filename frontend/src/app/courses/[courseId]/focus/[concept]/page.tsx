@@ -3,6 +3,8 @@
 import { use, useEffect, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
+import { ScannableText } from '@/components/ScannableText';
+import { extractKeyTerms } from '@/lib/highlightTerms';
 
 export default function FocusPracticePage({
   params,
@@ -149,6 +151,19 @@ export default function FocusPracticePage({
     return <main className="min-h-screen bg-gray-950 text-white p-8">No questions.</main>;
   }
 
+  // Highlight terms mined from the visible question/choices/feedback + tags.
+  const focusKeyTerms = extractKeyTerms({
+    text: [
+      question.question,
+      ...((question.choices as string[]) ?? []),
+      feedback?.feedback,
+      feedback?.explanation,
+      feedback?.ideal_answer,
+      ...((feedback?.missingConcepts as string[]) ?? []),
+    ],
+    explicit: question.concept_tags ?? [],
+  });
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -164,7 +179,15 @@ export default function FocusPracticePage({
           <div className="text-sm text-gray-400">
             {question.difficulty} · {question.concept_tags?.join(', ')}
           </div>
-          <h2 className="text-xl font-semibold">{question.question}</h2>
+          {question.question.length > 180 ? (
+            <ScannableText
+              text={question.question}
+              keyTerms={focusKeyTerms}
+              className="text-xl font-semibold"
+            />
+          ) : (
+            <h2 className="text-xl font-semibold">{question.question}</h2>
+          )}
 
           {question.type === 'mcq' && question.choices?.length ? (
             <div className="space-y-2">
@@ -177,7 +200,7 @@ export default function FocusPracticePage({
                   }`}
                   onClick={() => setAnswer(choice)}
                 >
-                  {choice}
+                  <ScannableText inline text={choice} keyTerms={focusKeyTerms} />
                 </button>
               ))}
             </div>
@@ -233,16 +256,35 @@ export default function FocusPracticePage({
                       </ul>
                     </div>
                   )}
-                  <p className="text-gray-300">{feedback.feedback}</p>
+                  <ScannableText
+                    text={feedback.feedback}
+                    keyTerms={focusKeyTerms}
+                    className="text-gray-300"
+                  />
                 </>
               ) : (
                 <>
                   <div className={feedback.correct ? 'text-green-400' : 'text-red-400'}>
                     {feedback.correct ? 'Correct' : 'Not quite'}
                   </div>
-                  <p className="text-gray-300">{feedback.explanation}</p>
-                  {!feedback.correct && (
-                    <p className="text-sm text-gray-400">Answer: {feedback.ideal_answer}</p>
+                  <ScannableText
+                    text={feedback.explanation}
+                    keyTerms={focusKeyTerms}
+                    clampChars={240}
+                    className="text-gray-300"
+                  />
+                  {!feedback.correct && feedback.ideal_answer && (
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Ideal answer
+                      </div>
+                      <ScannableText
+                        text={feedback.ideal_answer}
+                        keyTerms={focusKeyTerms}
+                        clampChars={160}
+                        className="text-sm text-gray-400"
+                      />
+                    </div>
                   )}
                 </>
               )}

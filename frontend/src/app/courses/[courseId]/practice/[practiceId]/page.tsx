@@ -3,6 +3,8 @@
 import { use, useEffect, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
+import { ScannableText } from '@/components/ScannableText';
+import { extractKeyTerms } from '@/lib/highlightTerms';
 
 export default function PracticePage({
   params,
@@ -43,6 +45,10 @@ export default function PracticePage({
   }
 
   const question = practice.questions[currentIndex];
+  const practiceKeyTerms = extractKeyTerms({
+    text: [question?.question, ...((question?.choices as string[]) ?? []), feedback?.explanation],
+    explicit: question?.concept_tags ?? [],
+  });
 
   function handleSubmit() {
     if (!answer) return;
@@ -95,7 +101,11 @@ export default function PracticePage({
             {question.difficulty} · {question.concept_tags?.join(', ')}
           </div>
 
-          <h2 className="text-xl font-semibold">{question.question}</h2>
+          {question.question.length > 180 ? (
+            <ScannableText text={question.question} keyTerms={practiceKeyTerms} className="text-xl font-semibold" />
+          ) : (
+            <h2 className="text-xl font-semibold">{question.question}</h2>
+          )}
 
           {question.type === 'mcq' && question.choices?.length ? (
             <div className="space-y-2">
@@ -109,7 +119,7 @@ export default function PracticePage({
                   }`}
                   onClick={() => setAnswer(choice)}
                 >
-                  {choice}
+                  <ScannableText inline text={choice} keyTerms={practiceKeyTerms} />
                 </button>
               ))}
             </div>
@@ -138,7 +148,7 @@ export default function PracticePage({
               <div className={feedback.correct ? 'text-green-400' : 'text-yellow-300'}>
                 {feedback.correct ? 'Correct' : 'Review this'}
               </div>
-              <p className="text-gray-300">{feedback.explanation}</p>
+              <ScannableText text={feedback.explanation} keyTerms={practiceKeyTerms} clampChars={240} className="text-gray-300" />
               <button
                 className="rounded-lg bg-blue-500 px-5 py-3 text-white"
                 onClick={handleNext}

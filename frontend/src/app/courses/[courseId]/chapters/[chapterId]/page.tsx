@@ -3,6 +3,8 @@
 import { use, useEffect, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
+import { ScannableText } from '@/components/ScannableText';
+import { extractKeyTerms } from '@/lib/highlightTerms';
 
 export default function ChapterPage({
   params,
@@ -150,6 +152,17 @@ export default function ChapterPage({
     progress?.completionPercent ??
     (totalQ > 0 ? Math.round((answeredQ / totalQ) * 100) : 0);
 
+  // Highlight terms mined from the visible question/choices/feedback + tags.
+  const studyKeyTerms = extractKeyTerms({
+    text: [
+      question?.question,
+      ...((question?.choices as string[]) ?? []),
+      feedback?.explanation,
+      feedback?.ideal_answer,
+    ],
+    explicit: question?.concept_tags ?? [],
+  });
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -217,7 +230,15 @@ export default function ChapterPage({
               {question.difficulty} · {question.concept_tags?.join(', ')}
             </div>
 
-            <h2 className="text-xl font-semibold">{question.question}</h2>
+            {question.question.length > 180 ? (
+              <ScannableText
+                text={question.question}
+                keyTerms={studyKeyTerms}
+                className="text-xl font-semibold"
+              />
+            ) : (
+              <h2 className="text-xl font-semibold">{question.question}</h2>
+            )}
 
             {question.type === 'mcq' && question.choices?.length ? (
               <div className="space-y-2">
@@ -232,7 +253,7 @@ export default function ChapterPage({
                     } ${submitting && answer !== choice ? 'opacity-50' : ''}`}
                     onClick={() => setAnswer(choice)}
                   >
-                    {choice}
+                    <ScannableText inline text={choice} keyTerms={studyKeyTerms} />
                   </button>
                 ))}
               </div>
@@ -268,7 +289,35 @@ export default function ChapterPage({
                 <div className={feedback.correct ? 'text-green-400' : 'text-red-400'}>
                   {feedback.correct ? 'Correct' : 'Not quite'}
                 </div>
-                <p className="text-gray-300">{feedback.explanation}</p>
+
+                {feedback.explanation && (
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      {feedback.correct ? 'Why' : 'What to improve'}
+                    </div>
+                    <ScannableText
+                      text={feedback.explanation}
+                      keyTerms={studyKeyTerms}
+                      clampChars={240}
+                      className="text-gray-300"
+                    />
+                  </div>
+                )}
+
+                {!feedback.correct && feedback.ideal_answer && (
+                  <div>
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Ideal answer
+                    </div>
+                    <ScannableText
+                      text={feedback.ideal_answer}
+                      keyTerms={studyKeyTerms}
+                      clampChars={160}
+                      className="text-gray-300"
+                    />
+                  </div>
+                )}
+
                 <button
                   className="rounded-lg bg-blue-500 px-5 py-3 text-white"
                   onClick={loadNext}

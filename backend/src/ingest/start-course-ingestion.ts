@@ -1,17 +1,45 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getPlaylistVideos, extractPlaylistId } from '../youtube/playlist';
+import { parseYouTubeUrl } from '../youtube/parse-youtube-url';
 import { fetchTranscriptFromSearchApi } from '../transcripts/searchapi-transcripts';
-import { processTranscript } from './process-transcript';
 
 const s3 = new S3Client({});
 
+/**
+ * Ingest transcripts for a YouTube source (playlist or single video).
+ *
+ * `sourceId` identifies the RAW transcript key namespace:
+ *   - playlist     → the playlist id
+ *   - single video → `single-video-<videoId>` (synthetic, documented)
+ * It is returned as `playlistId` so the rest of the pipeline (manifest +
+ * embed/process) is unchanged.
+ */
 export async function startCourseIngestion(input: {
   courseId: string;
-  playlistUrl: string;
+  sourceType?: 'YOUTUBE_PLAYLIST' | 'YOUTUBE_VIDEO';
+  sourceUrl?: string;
+  playlistUrl?: string; // legacy alias for sourceUrl
+  playlistId?: string;
+  videoId?: string;
 }) {
-  const playlistId = extractPlaylistId(input.playlistUrl);
-  const videoIds = (await getPlaylistVideos(input.playlistUrl)).slice(0, 3);
+  const url = input.sourceUrl ?? input.playlistUrl;
+  const parsed = input.sourceType
+    ? { sourceType: input.sourceType, playlistId: input.playlistId, videoId: input.videoId }
+    : parseYouTubeUrl(url!);
 
+  let sourceId: string;
+  let videoIds: string[];
+
+  if (parsed.sourceType === 'YOUTUBE_VIDEO') {
+    const videoId = parsed.videoId ?? parseYouTubeUrl(url!).videoId!;
+    videoIds = [videoId];
+    sourceId = `single-video-${videoId}`;
+  } else {
+    sourceId = parsed.playlistId ?? extractPlaylistId(url!);
+    videoIds = (await getPlaylistVideos(url!)).slice(0, 3);
+  }
+
+  const playlistId = sourceId;
   const results = [];
 
   for (const videoId of videoIds) {

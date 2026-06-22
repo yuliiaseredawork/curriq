@@ -141,7 +141,7 @@ export default function Home() {
               }`}
               onClick={() => setSourceTab('youtube')}
             >
-              YouTube playlist
+              YouTube
             </button>
             <button
               className={`rounded-lg px-4 py-2 text-sm font-medium ${
@@ -156,20 +156,25 @@ export default function Home() {
           </div>
 
           {sourceTab === 'youtube' ? (
-            <div className="flex gap-3">
-              <input
-                className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-4 py-3"
-                placeholder="Paste YouTube playlist URL"
-                value={playlistUrl}
-                onChange={(e) => setPlaylistUrl(e.target.value)}
-              />
-              <button
-                className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
-                onClick={handleGenerate}
-                disabled={loading || !playlistUrl}
-              >
-                {loading ? 'Generating...' : 'Generate'}
-              </button>
+            <div className="space-y-1">
+              <div className="flex gap-3">
+                <input
+                  className="flex-1 rounded-lg bg-gray-900 border border-gray-700 px-4 py-3"
+                  placeholder="Paste a YouTube playlist or single video URL"
+                  value={playlistUrl}
+                  onChange={(e) => setPlaylistUrl(e.target.value)}
+                />
+                <button
+                  className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
+                  onClick={handleGenerate}
+                  disabled={loading || !playlistUrl}
+                >
+                  {loading ? 'Generating...' : 'Generate course'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">
+                Works with playlists, watch links, youtu.be links, Shorts, and embeds.
+              </p>
             </div>
           ) : (
             <div className="flex gap-3 items-center">
@@ -220,7 +225,7 @@ export default function Home() {
 
           {!loadingCourses && courses.length === 0 && (
             <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 text-gray-300">
-              No courses yet. Paste a YouTube playlist above to create your first course.
+              No courses yet. Paste a YouTube playlist or video URL above to create your first course.
             </div>
           )}
 
@@ -238,13 +243,17 @@ export default function Home() {
                         {course.title ?? 'Untitled course'}
                       </h3>
                       <span className="shrink-0 rounded-full border border-gray-700 px-2 py-0.5 text-xs text-gray-400">
-                        {course.sourceType === 'PDF' ? 'PDF' : 'YouTube'}
+                        {course.sourceType === 'PDF'
+                          ? 'PDF'
+                          : course.sourceType === 'YOUTUBE_VIDEO'
+                            ? 'YouTube video'
+                            : 'YouTube playlist'}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-400">
+                    <p className="text-sm text-gray-400 break-all">
                       {course.sourceType === 'PDF'
                         ? course.sourceFileName
-                        : course.playlistUrl}
+                        : course.sourceUrl ?? course.playlistUrl}
                     </p>
                   </div>
                   <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">

@@ -21,11 +21,12 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
-    async createCourse(playlistUrl: string) {
+    // Accepts a YouTube playlist OR single-video URL (backend detects the type).
+    async createCourse(sourceUrl: string) {
       const res = await fetch(`${API_URL}/courses`, {
         method: 'POST',
         headers: await h(),
-        body: JSON.stringify({ playlistUrl }),
+        body: JSON.stringify({ sourceUrl }),
       });
       if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
       return res.json();

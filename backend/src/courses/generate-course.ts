@@ -6,6 +6,7 @@ import {
 import OpenAI from 'openai';
 
 import { startCourseIngestion } from '../ingest/start-course-ingestion';
+import { parseYouTubeUrl } from '../youtube/parse-youtube-url';
 import { saveCourseManifest, saveOutline } from '../storage/course-artifacts';
 import { generateOutlineFromChunks } from '../agents/outliner';
 import { callCourseMetadata } from './course-metadata-client';
@@ -96,12 +97,20 @@ async function searchChunks(input: {
 
 export const handler = async (event: {
   courseId: string;
-  playlistUrl: string;
   userId: string;
+  sourceType?: 'YOUTUBE_PLAYLIST' | 'YOUTUBE_VIDEO';
+  sourceUrl?: string;
+  playlistUrl?: string; // legacy alias for sourceUrl
+  playlistId?: string;
+  videoId?: string;
 }) => {
-  const { courseId, playlistUrl, userId } = event;
+  const { courseId, userId } = event;
+  const sourceUrl = event.sourceUrl ?? event.playlistUrl!;
+  const parsed = event.sourceType
+    ? { sourceType: event.sourceType, playlistId: event.playlistId, videoId: event.videoId }
+    : parseYouTubeUrl(sourceUrl);
 
-  console.log('[generate-course] start', { courseId, userId });
+  console.log('[generate-course] start', { courseId, userId, sourceType: parsed.sourceType });
 
   try {
     console.log('[generate-course] status → INGESTING', { courseId });
@@ -113,7 +122,10 @@ export const handler = async (event: {
 
     const ingestion = await startCourseIngestion({
       courseId,
-      playlistUrl,
+      sourceType: parsed.sourceType,
+      sourceUrl,
+      playlistId: parsed.playlistId,
+      videoId: parsed.videoId,
     });
 
     console.log('[generate-course] ingestion complete', {
@@ -123,18 +135,23 @@ export const handler = async (event: {
       results: ingestion.results.map((r: any) => ({ videoId: r.videoId, status: r.status })),
     });
 
+    const okTranscripts = ingestion.results.filter((r: any) => r.status === 'OK');
+    if (parsed.sourceType === 'YOUTUBE_VIDEO' && okTranscripts.length === 0) {
+      throw new Error('Could not load transcript for this video.');
+    }
+
     const manifest = {
       courseId,
-      playlistUrl,
+      sourceType: parsed.sourceType,
+      sourceUrl,
+      playlistUrl: sourceUrl, // legacy field
       playlistId: ingestion.playlistId,
       videoIds: ingestion.videoIds,
-      transcripts: ingestion.results
-        .filter((r: any) => r.status === 'OK')
-        .map((r: any) => ({
-          videoId: r.videoId,
-          key: r.key,
-          segmentCount: r.segmentCount,
-        })),
+      transcripts: okTranscripts.map((r: any) => ({
+        videoId: r.videoId,
+        key: r.key,
+        segmentCount: r.segmentCount,
+      })),
       createdAt: new Date().toISOString(),
     };
 
@@ -197,9 +214,11 @@ export const handler = async (event: {
       courseId,
       userId,
       title: outline.title,
-      playlistUrl,
+      playlistUrl: sourceUrl,
       playlistId: manifest.playlistId,
       status: 'READY',
+      sourceType: parsed.sourceType,
+      sourceUrl,
     });
 
     console.log('[generate-course] status → READY', { courseId, userId });

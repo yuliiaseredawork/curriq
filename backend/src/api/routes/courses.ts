@@ -22,13 +22,20 @@ import {
 } from '../../storage/study-state';
 
 import { getCurrentUserId, UnauthorizedError } from '../../auth/current-user';
+import { parseYouTubeUrl, InvalidYouTubeUrlError } from '../../youtube/parse-youtube-url';
 
 export const courses = new Hono();
 const lambda = new LambdaClient({});
 
-const Input = z.object({
-  playlistUrl: z.string().url(),
-});
+// Accept either sourceUrl (preferred) or the legacy playlistUrl. sourceUrl wins.
+const Input = z
+  .object({
+    playlistUrl: z.string().url().optional(),
+    sourceUrl: z.string().url().optional(),
+  })
+  .refine((d) => !!(d.sourceUrl || d.playlistUrl), {
+    message: 'sourceUrl or playlistUrl is required',
+  });
 
 function courseAccessDeniedResponse(c: any) {
   return c.json(
@@ -57,20 +64,41 @@ async function requireCourseAccess(c: any, courseId: string) {
 }
 
 courses.post('/', async (c) => {
-  const body = await c.req.json();
-  const input = Input.parse(body);
   const userId = await getCurrentUserId(c);
-  const courseId = randomUUID();
+  const input = Input.parse(await c.req.json());
+  const sourceUrl = (input.sourceUrl ?? input.playlistUrl)!;
 
-  console.log('[POST /courses]', { courseId, userId });
+  let parsed;
+  try {
+    parsed = parseYouTubeUrl(sourceUrl);
+  } catch (e) {
+    if (e instanceof InvalidYouTubeUrlError) {
+      return c.json(
+        {
+          error: 'INVALID_YOUTUBE_URL',
+          message: 'Please paste a valid YouTube playlist or video URL.',
+        },
+        400,
+      );
+    }
+    throw e;
+  }
+
+  const courseId = randomUUID();
+  const isVideo = parsed.sourceType === 'YOUTUBE_VIDEO';
+
+  console.log('[POST /courses]', { courseId, userId, sourceType: parsed.sourceType });
 
   await callCourseMetadata({
     action: 'upsert',
     courseId,
     userId,
-    title: 'Generating course...',
-    playlistUrl: input.playlistUrl,
+    title: isVideo ? 'Generating video course...' : 'Generating course...',
+    playlistUrl: sourceUrl, // legacy field
+    playlistId: parsed.playlistId ?? null,
     status: 'CREATED',
+    sourceType: parsed.sourceType,
+    sourceUrl,
   });
 
   await lambda.send(
@@ -80,8 +108,12 @@ courses.post('/', async (c) => {
       Payload: Buffer.from(
         JSON.stringify({
           courseId,
-          playlistUrl: input.playlistUrl,
           userId,
+          sourceType: parsed.sourceType,
+          sourceUrl,
+          playlistUrl: sourceUrl, // legacy
+          playlistId: parsed.playlistId,
+          videoId: parsed.videoId,
         }),
       ),
     }),
@@ -93,7 +125,8 @@ courses.post('/', async (c) => {
     {
       courseId,
       status: 'PROCESSING',
-      playlistUrl: input.playlistUrl,
+      sourceType: parsed.sourceType,
+      sourceUrl,
     },
     202,
   );

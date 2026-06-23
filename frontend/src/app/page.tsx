@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser, useClerk } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
+import { courseIdentity } from '@/lib/courseIdentity';
 
 export default function Home() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -22,8 +23,8 @@ export default function Home() {
   const [pdfStatus, setPdfStatus] = useState('');
   const [deadline, setDeadline] = useState<'none' | '1w' | '2w' | '1m' | 'custom'>('none');
   const [customDate, setCustomDate] = useState('');
-  const [today, setToday] = useState<any>(null);
-  const [flashcards, setFlashcards] = useState<any>(null);
+  const [session, setSession] = useState<any>(null);
+  const [showBreakdown, setShowBreakdown] = useState(false);
 
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
 
@@ -36,12 +37,7 @@ export default function Home() {
 
   async function loadToday() {
     try {
-      const [t, f] = await Promise.all([
-        api.getReviewsToday().catch(() => null),
-        api.getFlashcardsDue().catch(() => null),
-      ]);
-      setToday(t);
-      setFlashcards(f);
+      setSession(await api.getSessionToday().catch(() => null));
     } catch {
       // best-effort
     }
@@ -268,59 +264,67 @@ export default function Home() {
           )}
         </section>
 
-        {flashcards && flashcards.cardsDue > 0 && (
-          <section className="rounded-xl border border-purple-900 bg-purple-950/30 p-5 flex items-center justify-between">
-            <div>
-              <div className="text-sm text-purple-300">Flashcards due today</div>
-              <div className="text-2xl font-semibold">{flashcards.cardsDue} due</div>
-              <div className="text-xs text-gray-400">~{flashcards.estimatedMinutes} min</div>
-            </div>
-            <a href="/flashcards" className="rounded-lg bg-purple-500 px-4 py-2 text-sm font-medium text-white">
-              Start review
-            </a>
-          </section>
-        )}
-
-        {today?.byCourse?.length > 0 && (
-          <section className="rounded-xl border border-blue-900 bg-blue-950/30 p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Today&apos;s Reviews</h2>
-              <a
-                href="/reviews"
-                className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white"
-              >
-                Start reviewing
-              </a>
-            </div>
-            <div className="space-y-2">
-              {today.byCourse.map((co: any) => (
-                <div
-                  key={co.courseId}
-                  className="flex items-center justify-between rounded-lg bg-gray-950 border border-gray-800 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{co.courseTitle}</div>
-                    {co.targetDate && (
-                      <div className="text-xs text-gray-500">
-                        Deadline {new Date(co.targetDate).toLocaleDateString()}
-                        {co.daysRemaining != null && (
-                          <span className={co.daysRemaining < 0 ? 'text-red-400' : ''}>
-                            {' '}· {co.daysRemaining < 0 ? 'overdue' : `${co.daysRemaining} days left`}
-                          </span>
-                        )}
-                        {co.onTrack === false && co.daysBehind > 0 && (
-                          <span className="text-yellow-400"> · {co.daysBehind} days behind</span>
-                        )}
-                      </div>
+        {session?.goal?.taskCount > 0 && (
+          <section className="rounded-xl border border-blue-900 bg-blue-950/30 p-5 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-sm text-blue-300">Today&apos;s Goal</div>
+                <h2 className="text-2xl font-semibold">{session.goal.name}</h2>
+                <div className="text-gray-300">
+                  {session.goal.taskCount} task{session.goal.taskCount === 1 ? '' : 's'} · ~
+                  {session.goal.estimatedMinutes} min
+                </div>
+                {session.goal.deadline && (
+                  <div className="text-xs text-gray-400">
+                    Deadline {new Date(session.goal.deadline.targetDate).toLocaleDateString()}
+                    {session.goal.deadline.daysRemaining != null && (
+                      <span className={session.goal.deadline.daysRemaining < 0 ? 'text-red-400' : ''}>
+                        {' '}·{' '}
+                        {session.goal.deadline.daysRemaining < 0
+                          ? 'overdue'
+                          : `${session.goal.deadline.daysRemaining} days left`}
+                      </span>
+                    )}
+                    <span className={session.goal.deadline.onTrack ? 'text-green-400' : 'text-yellow-400'}>
+                      {' '}· {session.goal.deadline.onTrack ? 'On track' : 'Behind'}
+                    </span>
+                    {session.goal.deadline.recommendedReviewsPerDay > 0 && (
+                      <span> · {session.goal.deadline.recommendedReviewsPerDay}/day target</span>
                     )}
                   </div>
-                  <span className="shrink-0 text-sm text-gray-300">{co.dueCount} due</span>
-                </div>
-              ))}
+                )}
+              </div>
+              <a
+                href="/session"
+                className="shrink-0 rounded-lg bg-blue-500 px-5 py-3 text-sm font-medium text-white"
+              >
+                Start Session
+              </a>
             </div>
-            <div className="text-sm text-gray-400">
-              Total: {today.dueConcepts?.length ?? 0} reviews · ~{today.estimatedMinutes ?? 0} minutes
-            </div>
+
+            {session.goal.byCourse?.length > 1 && (
+              <div className="space-y-2">
+                <button
+                  className="text-sm text-blue-300"
+                  onClick={() => setShowBreakdown((s) => !s)}
+                >
+                  {showBreakdown ? '▾ Hide breakdown' : '▸ Per-course breakdown'}
+                </button>
+                {showBreakdown && (
+                  <div className="space-y-2">
+                    {session.goal.byCourse.map((co: any) => (
+                      <div
+                        key={co.courseId}
+                        className="flex items-center justify-between rounded-lg bg-gray-950 border border-gray-800 px-4 py-2 text-sm"
+                      >
+                        <span className="truncate">{co.courseTitle}</span>
+                        <span className="shrink-0 text-gray-300">{co.taskCount} task{co.taskCount === 1 ? '' : 's'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -354,6 +358,17 @@ export default function Home() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
+                      {(() => {
+                        const id = courseIdentity(course.title);
+                        return (
+                          <span
+                            className={`shrink-0 rounded-lg border ${id.accentClass} px-2 py-0.5 text-sm`}
+                            title={id.category}
+                          >
+                            {id.icon}
+                          </span>
+                        );
+                      })()}
                       <h3 className="text-lg font-semibold">
                         {course.title ?? 'Untitled course'}
                       </h3>

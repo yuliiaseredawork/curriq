@@ -39,6 +39,14 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
+    // Unified daily session: one prioritized queue + a goal summary.
+    async getSessionToday(courseId?: string) {
+      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
+      const res = await fetch(`${API_URL}/session/today${qs}`, { headers: await h() });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
     async nextReview(courseId?: string) {
       const res = await fetch(`${API_URL}/reviews/next`, {
         method: 'POST',

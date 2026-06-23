@@ -6,6 +6,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { extractKeyTerms, titleTerms } from '@/lib/highlightTerms';
+import { courseIdentity } from '@/lib/courseIdentity';
 
 export default function CoursePage({
   params,
@@ -189,27 +190,61 @@ export default function CoursePage({
           ← My Courses
         </a>
 
-        <h1 className="text-3xl font-bold">{course.outline.title}</h1>
+        {(() => {
+          const id = courseIdentity(course.outline.title);
+          return (
+            <div className="flex items-center gap-3">
+              <span className={`shrink-0 rounded-lg border ${id.accentClass} px-3 py-1.5 text-2xl`}>
+                {id.icon}
+              </span>
+              <div>
+                <div className={`text-xs uppercase tracking-wide ${id.accentClass.split(' ').find((x) => x.startsWith('text-')) ?? 'text-gray-400'}`}>
+                  {id.category}
+                </div>
+                <h1 className="text-3xl font-bold">{course.outline.title}</h1>
+              </div>
+            </div>
+          );
+        })()}
 
-        {progress && (
+        {(progress || retention) && (
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm text-gray-400">Course progress</div>
+                <div className="text-sm text-gray-400">Learning progress</div>
                 <div className="text-2xl font-semibold">
-                  {progress.completionPercent}%
+                  {retention?.learningProgress != null
+                    ? retention.learningProgress
+                    : progress?.completionPercent ?? 0}
+                  %
                 </div>
               </div>
-              <div className="text-sm text-gray-400">
-                {progress.answeredQuestions} / {progress.totalQuestions} questions
-              </div>
+              {progress && (
+                <div className="text-sm text-gray-400 text-right">
+                  {progress.answeredQuestions} / {progress.totalQuestions} quiz questions
+                </div>
+              )}
             </div>
             <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
               <div
                 className="h-full bg-blue-500"
-                style={{ width: `${progress.completionPercent}%` }}
+                style={{
+                  width: `${
+                    retention?.learningProgress != null
+                      ? retention.learningProgress
+                      : progress?.completionPercent ?? 0
+                  }%`,
+                }}
               />
             </div>
+            {retention?.breakdown && (
+              <div className="text-xs text-gray-500">
+                Mastery {retention.breakdown.avgConceptMastery}% · Quizzes{' '}
+                {Math.round(retention.breakdown.quizCompletion)}% · Retention{' '}
+                {retention.breakdown.retentionScore}% · Reviews{' '}
+                {Math.round(retention.breakdown.reviewActivity)}%
+              </div>
+            )}
           </div>
         )}
 
@@ -222,11 +257,21 @@ export default function CoursePage({
               </div>
             )}
             {course.metadata?.targetDate && (() => {
-              const daysLeft = Math.ceil(
-                (new Date(course.metadata.targetDate).getTime() - Date.now()) / 86400000,
-              );
+              const target = new Date(course.metadata.targetDate).getTime();
+              const daysLeft = Math.ceil((target - Date.now()) / 86400000);
               const remaining = retention ? retention.total - retention.mastered : 0;
               const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
+              // On-track vs an even burn-down (mirrors backend scheduleStatus).
+              let onTrack = true;
+              const created = course.metadata.createdAt
+                ? new Date(course.metadata.createdAt).getTime()
+                : null;
+              if (created && retention && retention.total > 0) {
+                const totalDays = Math.max(1, Math.ceil((target - created) / 86400000));
+                const elapsed = Math.max(0, totalDays - Math.max(0, daysLeft));
+                const expectedMastered = (retention.total * elapsed) / totalDays;
+                onTrack = expectedMastered - retention.mastered <= 0.5;
+              }
               return (
                 <div>
                   <div className="text-xs text-gray-500">Deadline</div>
@@ -235,6 +280,11 @@ export default function CoursePage({
                   </div>
                   {daysLeft >= 0 && remaining > 0 && (
                     <div className="text-xs text-gray-500">{perDay} reviews/day</div>
+                  )}
+                  {daysLeft >= 0 && retention && (
+                    <div className={`text-xs ${onTrack ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {onTrack ? 'On track' : 'Behind'}
+                    </div>
                   )}
                 </div>
               );

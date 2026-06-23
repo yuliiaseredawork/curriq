@@ -12,6 +12,7 @@ import { coursesPdf } from './routes/courses-pdf';
 import { focusAreas } from './routes/focus-areas';
 import { reviews } from './routes/reviews';
 import { flashcards } from './routes/flashcards';
+import { session } from './routes/session';
 import { UnauthorizedError } from '../auth/current-user';
 
 const app = new Hono();
@@ -57,6 +58,7 @@ app.route('/courses', coursesPdf);
 app.route('/courses', focusAreas);
 app.route('/', reviews);
 app.route('/', flashcards);
+app.route('/', session);
 app.route('/search', search);
 app.route('/outline', outline);
 app.route('/quizzes', quizzes);

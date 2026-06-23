@@ -24,6 +24,7 @@ import {
 import { getCurrentUserId, UnauthorizedError } from '../../auth/current-user';
 import { parseYouTubeUrl, InvalidYouTubeUrlError } from '../../youtube/parse-youtube-url';
 import { listMastery } from '../../storage/focus-areas';
+import { blendProgress } from '../../courses/progress';
 
 export const courses = new Hono();
 const lambda = new LambdaClient({});
@@ -506,13 +507,59 @@ courses.get('/:courseId/retention', async (c) => {
       .slice(0, 3)
       .map((x) => ({ ...view(x.r), gain: x.gain }));
 
+    const retentionScore = total ? Math.round((mastered.length / total) * 100) : 0;
+
+    // Blended "learning progress": mastery + quiz completion + retention +
+    // review activity, so progress reflects real learning, not quiz-only %.
+    const avgConceptMastery = total
+      ? Math.round(records.reduce((s, r) => s + r.masteryScore, 0) / total)
+      : 0;
+    const reviewedConcepts = records.filter((r) => r.lastReviewedAt || r.nextReviewAt).length;
+
+    // Quiz completion — same loop the /progress route uses (loadOutline → loadQuiz).
+    let answeredQuestions = 0;
+    let totalQuestions = 0;
+    try {
+      const outline = await loadOutline(courseId);
+      const progressItems = await getCourseProgress({ userId, courseId });
+      const answeredByChapter = new Map<string, Set<string>>();
+      for (const item of progressItems as any[]) {
+        if (!answeredByChapter.has(item.chapterId)) answeredByChapter.set(item.chapterId, new Set());
+        answeredByChapter.get(item.chapterId)!.add(item.questionId);
+      }
+      for (const chapter of outline.chapters) {
+        let quizCount = 0;
+        try {
+          const quiz = await loadQuiz(courseId, chapter.id);
+          quizCount = quiz.questions?.length ?? 0;
+        } catch {
+          quizCount = 0;
+        }
+        totalQuestions += quizCount;
+        answeredQuestions += answeredByChapter.get(chapter.id)?.size ?? 0;
+      }
+    } catch {
+      // No outline/quizzes yet — quiz completion stays 0.
+    }
+    const quizCompletion = totalQuestions ? (answeredQuestions / totalQuestions) * 100 : 0;
+
+    const { learningProgress, breakdown } = blendProgress({
+      avgConceptMastery,
+      quizCompletion,
+      retentionScore,
+      reviewedConcepts,
+      totalConcepts: total,
+    });
+
     return c.json({
       courseId,
       total,
       mastered: mastered.length,
       learning: learning.length,
       forgotten: forgotten.length,
-      retentionScore: total ? Math.round((mastered.length / total) * 100) : 0,
+      retentionScore,
+      learningProgress,
+      breakdown,
       weakest,
       mostImproved,
     });

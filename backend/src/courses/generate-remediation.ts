@@ -12,6 +12,8 @@ import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 
 import { generateRemediation } from '../agents/remediation-writer';
 import { consolidateFocusAreas } from '../agents/focus-consolidator';
+import { generateFlashcards } from '../agents/flashcard-writer';
+import { listCardsForConcept, putCard, newCard } from '../storage/flashcards';
 import { saveRemediationSet, loadRemediationSet } from '../storage/course-artifacts';
 import {
   getMastery,
@@ -132,20 +134,56 @@ export const handler = async (event: {
     };
 
     try {
-      const exists = event.force ? null : await loadRemediationSet(courseId, slug);
-      if (!exists) {
+      const needRemediation = event.force || !(await loadRemediationSet(courseId, slug));
+      const existingCards = await listCardsForConcept(userId, courseId, slug);
+      const needCards = existingCards.length === 0;
+      record.remediationReady = !needRemediation; // already had a set
+
+      if (needRemediation || needCards) {
         const query = [area.title, ...area.rawConcepts].join(', ');
         const search = await searchChunks(courseId, query, 8);
         if (search.results?.length) {
-          const set = await generateRemediation({ concept: area.title, chunks: search.results });
-          await saveRemediationSet(courseId, slug, set);
-          record.remediationReady = true;
+          if (needRemediation) {
+            const set = await generateRemediation({ concept: area.title, chunks: search.results });
+            await saveRemediationSet(courseId, slug, set);
+            record.remediationReady = true;
+          }
+          if (needCards) {
+            const cards = await generateFlashcards({
+              concept: area.title,
+              chunks: search.results,
+              mistakes: sampleGaps,
+              count: 4,
+            });
+            let i = 0;
+            for (const card of cards) {
+              await putCard(
+                newCard({
+                  cardId: `${slug}-${i++}`,
+                  userId,
+                  courseId,
+                  conceptSlug: slug,
+                  concept: area.title,
+                  type: card.type,
+                  front: card.front,
+                  back: card.back,
+                  sourceChunkIds: card.sourceChunkIds,
+                  sourceQuote: card.sourceQuote,
+                  misconceptionTarget: card.misconceptionTarget,
+                  difficulty: card.difficulty,
+                }),
+              );
+            }
+            console.log('[consolidate-focus] flashcards generated', {
+              courseId,
+              slug,
+              count: cards.length,
+            });
+          }
         }
-      } else {
-        record.remediationReady = true;
       }
     } catch (e: any) {
-      console.error('[consolidate-focus] remediation failed', {
+      console.error('[consolidate-focus] remediation/flashcards failed', {
         courseId,
         slug,
         error: String(e?.message ?? e),

@@ -53,7 +53,8 @@ export async function runMigrations() {
         ADD COLUMN IF NOT EXISTS source_type text,
         ADD COLUMN IF NOT EXISTS source_url text,
         ADD COLUMN IF NOT EXISTS source_file_key text,
-        ADD COLUMN IF NOT EXISTS source_file_name text;
+        ADD COLUMN IF NOT EXISTS source_file_name text,
+        ADD COLUMN IF NOT EXISTS target_date timestamptz;
     `);
     // PDF courses have no playlist — relax the legacy NOT NULL constraint.
     await client.query(`
@@ -81,6 +82,7 @@ export async function upsertCourse(input: {
   sourceUrl?: string | null;
   sourceFileKey?: string | null;
   sourceFileName?: string | null;
+  targetDate?: string | null;
 }) {
   const client = await createClient();
 
@@ -99,10 +101,11 @@ export async function upsertCourse(input: {
         source_url,
         source_file_key,
         source_file_name,
+        target_date,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now())
       ON CONFLICT (id)
       DO UPDATE SET
         title = EXCLUDED.title,
@@ -112,12 +115,13 @@ export async function upsertCourse(input: {
         error_message = EXCLUDED.error_message,
         updated_at = now(),
         user_id = EXCLUDED.user_id,
-        -- Preserve existing source_* when a caller doesn't provide them
-        -- (e.g. YouTube READY upsert) so PDF metadata is never clobbered.
+        -- Preserve existing source_* / target_date when a caller doesn't
+        -- provide them (e.g. the READY upsert) so they're never clobbered.
         source_type = COALESCE(EXCLUDED.source_type, public.courses.source_type),
         source_url = COALESCE(EXCLUDED.source_url, public.courses.source_url),
         source_file_key = COALESCE(EXCLUDED.source_file_key, public.courses.source_file_key),
-        source_file_name = COALESCE(EXCLUDED.source_file_name, public.courses.source_file_name)
+        source_file_name = COALESCE(EXCLUDED.source_file_name, public.courses.source_file_name),
+        target_date = COALESCE(EXCLUDED.target_date, public.courses.target_date)
       `,
       [
         input.courseId,
@@ -131,6 +135,7 @@ export async function upsertCourse(input: {
         input.sourceUrl ?? input.playlistUrl ?? null,
         input.sourceFileKey ?? null,
         input.sourceFileName ?? null,
+        input.targetDate ?? null,
       ],
     );
   } finally {
@@ -178,6 +183,7 @@ export async function listCourses(userId: string) {
         source_type,
         source_url,
         source_file_name,
+        target_date,
         created_at,
         updated_at
       FROM public.courses
@@ -201,6 +207,7 @@ export async function listCourses(userId: string) {
       sourceType: r.source_type ?? 'YOUTUBE_PLAYLIST',
       sourceUrl: r.source_url,
       sourceFileName: r.source_file_name,
+      targetDate: r.target_date,
     }));
   } finally {
     await client.end();
@@ -266,6 +273,7 @@ export async function getCourseMetadataForUser(input: {
         source_url,
         source_file_key,
         source_file_name,
+        target_date,
         created_at,
         updated_at
       FROM public.courses
@@ -291,6 +299,7 @@ export async function getCourseMetadataForUser(input: {
       sourceUrl: r.source_url,
       sourceFileKey: r.source_file_key,
       sourceFileName: r.source_file_name,
+      targetDate: r.target_date,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };

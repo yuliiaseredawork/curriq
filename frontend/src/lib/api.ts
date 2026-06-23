@@ -22,12 +22,81 @@ export function createApiClient(getToken: GetToken) {
     },
 
     // Accepts a YouTube playlist OR single-video URL (backend detects the type).
-    async createCourse(sourceUrl: string) {
+    // Optional targetDate (ISO) sets a mastery deadline.
+    async createCourse(sourceUrl: string, targetDate?: string) {
       const res = await fetch(`${API_URL}/courses`, {
         method: 'POST',
         headers: await h(),
-        body: JSON.stringify({ sourceUrl }),
+        body: JSON.stringify(targetDate ? { sourceUrl, targetDate } : { sourceUrl }),
       });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async getReviewsToday() {
+      const res = await fetch(`${API_URL}/reviews/today`, { headers: await h() });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async nextReview(courseId?: string) {
+      const res = await fetch(`${API_URL}/reviews/next`, {
+        method: 'POST',
+        headers: await h(),
+        body: JSON.stringify(courseId ? { courseId } : {}),
+      });
+      return { status: res.status, body: await res.json() };
+    },
+
+    async answerReview(reviewId: string, answer: string) {
+      const res = await fetch(`${API_URL}/reviews/answer`, {
+        method: 'POST',
+        headers: await h(),
+        body: JSON.stringify({ reviewId, answer }),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async getFlashcardsDue(courseId?: string) {
+      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
+      const res = await fetch(`${API_URL}/flashcards/due${qs}`, { headers: await h() });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async nextFlashcard(courseId?: string) {
+      const res = await fetch(`${API_URL}/flashcards/next`, {
+        method: 'POST',
+        headers: await h(),
+        body: JSON.stringify(courseId ? { courseId } : {}),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async revealFlashcard(cardId: string, courseId: string) {
+      const res = await fetch(`${API_URL}/flashcards/${encodeURIComponent(cardId)}/reveal`, {
+        method: 'POST',
+        headers: await h(),
+        body: JSON.stringify({ courseId }),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async rateFlashcard(cardId: string, courseId: string, rating: string) {
+      const res = await fetch(`${API_URL}/flashcards/${encodeURIComponent(cardId)}/rate`, {
+        method: 'POST',
+        headers: await h(),
+        body: JSON.stringify({ courseId, rating }),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async getRetention(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/retention`, { headers: await h() });
       if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
       return res.json();
     },

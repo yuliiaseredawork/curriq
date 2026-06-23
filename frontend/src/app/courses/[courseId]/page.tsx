@@ -34,6 +34,22 @@ export default function CoursePage({
   const [showMastered, setShowMastered] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [quizStatus, setQuizStatus] = useState<Record<string, any>>({});
+  const [retention, setRetention] = useState<any>(null);
+  const [cardsDue, setCardsDue] = useState<number | null>(null);
+
+  async function loadRetention() {
+    try {
+      setRetention(await api.getRetention(courseId));
+    } catch {
+      // best-effort
+    }
+    try {
+      const f = await api.getFlashcardsDue(courseId);
+      setCardsDue(f.cardsDue ?? 0);
+    } catch {
+      // best-effort
+    }
+  }
 
   async function loadFocusAreas() {
     try {
@@ -72,6 +88,7 @@ export default function CoursePage({
 
     loadFocusAreas();
     loadQuizStatus();
+    loadRetention();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, authLoaded, userLoaded, userId]);
 
@@ -193,6 +210,53 @@ export default function CoursePage({
                 style={{ width: `${progress.completionPercent}%` }}
               />
             </div>
+          </div>
+        )}
+
+        {(course.metadata?.targetDate || retention || cardsDue) && (
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 grid grid-cols-2 gap-4 sm:grid-cols-5 text-sm">
+            {cardsDue != null && cardsDue > 0 && (
+              <div>
+                <div className="text-xs text-gray-500">Reviews due</div>
+                <a href="/flashcards" className="text-lg font-semibold text-purple-300">{cardsDue}</a>
+              </div>
+            )}
+            {course.metadata?.targetDate && (() => {
+              const daysLeft = Math.ceil(
+                (new Date(course.metadata.targetDate).getTime() - Date.now()) / 86400000,
+              );
+              const remaining = retention ? retention.total - retention.mastered : 0;
+              const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
+              return (
+                <div>
+                  <div className="text-xs text-gray-500">Deadline</div>
+                  <div className={`text-lg font-semibold ${daysLeft < 0 ? 'text-red-400' : ''}`}>
+                    {daysLeft < 0 ? 'Passed' : `${daysLeft} days`}
+                  </div>
+                  {daysLeft >= 0 && remaining > 0 && (
+                    <div className="text-xs text-gray-500">{perDay} reviews/day</div>
+                  )}
+                </div>
+              );
+            })()}
+            {retention && (
+              <>
+                <div>
+                  <div className="text-xs text-gray-500">Retention</div>
+                  <div className="text-lg font-semibold">{retention.retentionScore}%</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Mastered / Learning</div>
+                  <div className="text-lg font-semibold">
+                    {retention.mastered} / {retention.learning}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Forgotten</div>
+                  <div className="text-lg font-semibold text-yellow-400">{retention.forgotten}</div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

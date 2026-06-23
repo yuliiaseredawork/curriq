@@ -20,8 +20,32 @@ export default function Home() {
   const [sourceTab, setSourceTab] = useState<'youtube' | 'pdf'>('youtube');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfStatus, setPdfStatus] = useState('');
+  const [deadline, setDeadline] = useState<'none' | '1w' | '2w' | '1m' | 'custom'>('none');
+  const [customDate, setCustomDate] = useState('');
+  const [today, setToday] = useState<any>(null);
+  const [flashcards, setFlashcards] = useState<any>(null);
 
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
+
+  function computeTargetDate(): string | undefined {
+    const days = deadline === '1w' ? 7 : deadline === '2w' ? 14 : deadline === '1m' ? 30 : 0;
+    if (days > 0) return new Date(Date.now() + days * 86400000).toISOString();
+    if (deadline === 'custom' && customDate) return new Date(customDate).toISOString();
+    return undefined;
+  }
+
+  async function loadToday() {
+    try {
+      const [t, f] = await Promise.all([
+        api.getReviewsToday().catch(() => null),
+        api.getFlashcardsDue().catch(() => null),
+      ]);
+      setToday(t);
+      setFlashcards(f);
+    } catch {
+      // best-effort
+    }
+  }
 
   async function loadCourses() {
     setLoadingCourses(true);
@@ -50,10 +74,11 @@ export default function Home() {
     setLoading(true);
     setError('');
     try {
-      const created = await api.createCourse(playlistUrl);
+      const created = await api.createCourse(playlistUrl, computeTargetDate());
       setPlaylistUrl('');
       await waitForCourseReady(created.courseId);
       await loadCourses();
+      await loadToday();
     } catch (e: any) {
       setError(e.message ?? 'Something went wrong');
     } finally {
@@ -95,6 +120,7 @@ export default function Home() {
     }
 
     loadCourses();
+    loadToday();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn]);
 
@@ -175,6 +201,39 @@ export default function Home() {
               <p className="text-xs text-gray-500">
                 Works with playlists, watch links, youtu.be links, Shorts, and embeds.
               </p>
+
+              <div className="pt-2 space-y-1">
+                <div className="text-sm text-gray-400">When do you want to master this topic?</div>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ['none', 'No deadline'],
+                    ['1w', '1 week'],
+                    ['2w', '2 weeks'],
+                    ['1m', '1 month'],
+                    ['custom', 'Custom date'],
+                  ] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setDeadline(val)}
+                      className={`rounded-lg px-3 py-1.5 text-sm ${
+                        deadline === val
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-900 text-gray-300 border border-gray-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  {deadline === 'custom' && (
+                    <input
+                      type="date"
+                      value={customDate}
+                      onChange={(e) => setCustomDate(e.target.value)}
+                      className="rounded-lg bg-gray-900 border border-gray-700 px-3 py-1.5 text-sm"
+                    />
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="flex gap-3 items-center">
@@ -208,6 +267,62 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        {flashcards && flashcards.cardsDue > 0 && (
+          <section className="rounded-xl border border-purple-900 bg-purple-950/30 p-5 flex items-center justify-between">
+            <div>
+              <div className="text-sm text-purple-300">Flashcards due today</div>
+              <div className="text-2xl font-semibold">{flashcards.cardsDue} due</div>
+              <div className="text-xs text-gray-400">~{flashcards.estimatedMinutes} min</div>
+            </div>
+            <a href="/flashcards" className="rounded-lg bg-purple-500 px-4 py-2 text-sm font-medium text-white">
+              Start review
+            </a>
+          </section>
+        )}
+
+        {today?.byCourse?.length > 0 && (
+          <section className="rounded-xl border border-blue-900 bg-blue-950/30 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Today&apos;s Reviews</h2>
+              <a
+                href="/reviews"
+                className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white"
+              >
+                Start reviewing
+              </a>
+            </div>
+            <div className="space-y-2">
+              {today.byCourse.map((co: any) => (
+                <div
+                  key={co.courseId}
+                  className="flex items-center justify-between rounded-lg bg-gray-950 border border-gray-800 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{co.courseTitle}</div>
+                    {co.targetDate && (
+                      <div className="text-xs text-gray-500">
+                        Deadline {new Date(co.targetDate).toLocaleDateString()}
+                        {co.daysRemaining != null && (
+                          <span className={co.daysRemaining < 0 ? 'text-red-400' : ''}>
+                            {' '}· {co.daysRemaining < 0 ? 'overdue' : `${co.daysRemaining} days left`}
+                          </span>
+                        )}
+                        {co.onTrack === false && co.daysBehind > 0 && (
+                          <span className="text-yellow-400"> · {co.daysBehind} days behind</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-sm text-gray-300">{co.dueCount} due</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-sm text-gray-400">
+              Total: {today.dueConcepts?.length ?? 0} reviews · ~{today.estimatedMinutes ?? 0} minutes
+            </div>
+          </section>
+        )}
 
         <section className="space-y-4">
           <div className="flex items-center justify-between">

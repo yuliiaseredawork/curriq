@@ -30,6 +30,7 @@ type Event =
       sourceUrl?: string | null;
       sourceFileKey?: string | null;
       sourceFileName?: string | null;
+      targetDate?: string | null;
   }
   | { action: 'migrate' }
   | {

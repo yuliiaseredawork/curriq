@@ -23,6 +23,7 @@ import {
 
 import { getCurrentUserId, UnauthorizedError } from '../../auth/current-user';
 import { parseYouTubeUrl, InvalidYouTubeUrlError } from '../../youtube/parse-youtube-url';
+import { listMastery } from '../../storage/focus-areas';
 
 export const courses = new Hono();
 const lambda = new LambdaClient({});
@@ -32,6 +33,7 @@ const Input = z
   .object({
     playlistUrl: z.string().url().optional(),
     sourceUrl: z.string().url().optional(),
+    targetDate: z.string().datetime().optional(),
   })
   .refine((d) => !!(d.sourceUrl || d.playlistUrl), {
     message: 'sourceUrl or playlistUrl is required',
@@ -99,6 +101,7 @@ courses.post('/', async (c) => {
     status: 'CREATED',
     sourceType: parsed.sourceType,
     sourceUrl,
+    targetDate: input.targetDate ?? null,
   });
 
   await lambda.send(
@@ -472,6 +475,51 @@ courses.post('/:courseId/chapters/:chapterId/quiz/retry', async (c) => {
       },
       500,
     );
+  }
+});
+
+courses.get('/:courseId/retention', async (c) => {
+  const courseId = c.req.param('courseId');
+  try {
+    const { userId } = await requireCourseAccess(c, courseId);
+    const records = (await listMastery(userId, courseId)).filter((r) => r.isCanonical);
+
+    const total = records.length;
+    const mastered = records.filter((r) => r.state === 'MASTERED');
+    const learning = records.filter((r) => r.state === 'PRACTICING');
+    // "Forgotten" = lapsed: peaked notably higher than current mastery.
+    const forgotten = records.filter((r) => {
+      const peak = Math.max(r.masteryScore, ...(r.history ?? []).map((h) => h.score));
+      return r.state === 'NEEDS_REVIEW' && peak - r.masteryScore >= 20;
+    });
+
+    const view = (r: any) => ({
+      conceptSlug: r.conceptSlug,
+      title: r.title ?? r.concept,
+      masteryScore: r.masteryScore,
+    });
+    const weakest = [...records].sort((a, b) => a.masteryScore - b.masteryScore).slice(0, 3).map(view);
+    const mostImproved = [...records]
+      .map((r) => ({ r, gain: r.masteryScore - ((r.history ?? [])[0]?.score ?? r.masteryScore) }))
+      .filter((x) => x.gain > 0)
+      .sort((a, b) => b.gain - a.gain)
+      .slice(0, 3)
+      .map((x) => ({ ...view(x.r), gain: x.gain }));
+
+    return c.json({
+      courseId,
+      total,
+      mastered: mastered.length,
+      learning: learning.length,
+      forgotten: forgotten.length,
+      retentionScore: total ? Math.round((mastered.length / total) * 100) : 0,
+      weakest,
+      mostImproved,
+    });
+  } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    return c.json({ error: 'RETENTION_UNAVAILABLE', message: e.message }, 500);
   }
 });
 

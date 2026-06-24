@@ -61,9 +61,19 @@ export type QuizCandidate = {
   chapterId: string;
   questionId: string;
   question: unknown; // answer-stripped
+  // Chapter progress, for the "finish what you started" boost. Optional so
+  // older callers keep working.
+  chapterAnswered?: number;
+  chapterTotal?: number;
 };
 
-type Common = { priority: number; reason: string; estMinutes: number };
+type Common = {
+  priority: number;
+  reason: string;
+  estMinutes: number;
+  /** Expected mastery headroom for this item (0–50); higher = more to gain. */
+  estLearningGain?: number;
+};
 
 export type SessionTask =
   | (Common & {
@@ -131,20 +141,23 @@ export function buildSession(input: {
   // Tiers 2–4 — concepts. Each concept lands in exactly one tier (first match).
   for (const c of input.concepts) {
     const od = overdueDays(c.nextReviewAt, now);
-    const weakness = Math.max(0, 100 - c.masteryScore) * 0.5;
+    // Estimated learning gain = mastery headroom, scaled to 0–50 so it orders
+    // items *within* a tier (tiers sit 100 apart and never cross). A concept at
+    // 30% mastery (gain 35) beats one at 80% (gain 10) in the same tier.
+    const estLearningGain = Math.round(Math.max(0, 100 - c.masteryScore) * 0.5);
     let priority: number;
     let reason: string;
 
     if (c.reviewedBefore && od > 0 && c.state !== 'MASTERED') {
-      priority = 400 + od + weakness; // Tier 2: at risk of forgetting
+      priority = 400 + od + estLearningGain; // Tier 2: at risk of forgetting
       reason = 'At risk of forgetting';
     } else if (c.deadlineDaysLeft != null && c.state !== 'MASTERED') {
       // Tier 3: deadline-critical — weight grows as the deadline nears.
       const urgency = Math.max(0, 30 - Math.max(0, c.deadlineDaysLeft));
-      priority = 300 + urgency + weakness;
+      priority = 300 + urgency + estLearningGain;
       reason = 'Due before your deadline';
     } else {
-      priority = 200 + weakness; // Tier 4: weak / never scheduled
+      priority = 200 + estLearningGain; // Tier 4: weak / never scheduled
       reason = 'Weak area';
     }
 
@@ -153,6 +166,7 @@ export function buildSession(input: {
       priority,
       reason,
       estMinutes: QA_MINUTES,
+      estLearningGain,
       courseId: c.courseId,
       courseTitle: c.courseTitle,
       conceptSlug: c.conceptSlug,
@@ -162,12 +176,19 @@ export function buildSession(input: {
     });
   }
 
-  // Tier 5 — new quiz questions (lowest). Preserve their incoming order.
+  // Tier 5 — new quiz questions (lowest). Questions from a chapter the learner
+  // has already started get an "unfinished chapter" boost (0–50) so we nudge them
+  // to finish what they began before starting a brand-new chapter. The boost is
+  // capped under the ~100 tier gap, so quiz tasks never outrank concept reviews.
   input.quiz.forEach((q, i) => {
+    const total = q.chapterTotal ?? 0;
+    const answered = q.chapterAnswered ?? 0;
+    const started = total > 0 && answered > 0 && answered < total;
+    const boost = started ? Math.round(50 * (answered / total)) : 0;
     tasks.push({
       kind: 'quiz',
-      priority: 100 - i * 0.01,
-      reason: 'New question',
+      priority: 100 + boost - i * 0.01,
+      reason: started ? 'Finish the chapter you started' : 'New question',
       estMinutes: QA_MINUTES,
       courseId: q.courseId,
       courseTitle: q.courseTitle,
@@ -214,4 +235,30 @@ function interleave(sorted: SessionTask[]): SessionTask[] {
 /** Total estimated minutes for a queue, rounded up to at least 1. */
 export function estimateMinutes(tasks: SessionTask[]): number {
   return Math.max(1, Math.round(tasks.reduce((sum, t) => sum + t.estMinutes, 0)));
+}
+
+export type NextBestAction = {
+  type: 'FLASHCARD' | 'REVIEW' | 'QUIZ';
+  reason: string;
+  courseId: string;
+  courseTitle: string;
+  cardId?: string;
+  conceptSlug?: string;
+  reviewId?: string;
+  chapterId?: string;
+  questionId?: string;
+} | null;
+
+/**
+ * The single highest-priority task, projected to the "Continue Learning" shape
+ * the UI offers as the one primary action. Null when there's nothing due.
+ */
+export function pickNextBestAction(tasks: SessionTask[]): NextBestAction {
+  const t = tasks[0];
+  if (!t) return null;
+  const base = { reason: t.reason, courseId: t.courseId, courseTitle: t.courseTitle };
+  if (t.kind === 'flashcard') return { type: 'FLASHCARD', ...base, cardId: t.cardId };
+  if (t.kind === 'review')
+    return { type: 'REVIEW', ...base, conceptSlug: t.conceptSlug, reviewId: t.reviewId };
+  return { type: 'QUIZ', ...base, chapterId: t.chapterId, questionId: t.questionId };
 }

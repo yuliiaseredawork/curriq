@@ -15,11 +15,17 @@ import { listCards, isCardDue } from '../../storage/flashcards';
 import { listMastery, isDue } from '../../storage/focus-areas';
 import { loadRemediationSet, loadOutline, loadQuiz } from '../../storage/course-artifacts';
 import { getCourseProgress } from '../../storage/study-state';
-import { daysUntil, requiredReviewsPerDay, scheduleStatus } from '../../courses/deadline';
+import {
+  daysUntil,
+  requiredReviewsPerDay,
+  scheduleStatus,
+  deadlineConfidence,
+} from '../../courses/deadline';
 import { blendProgress } from '../../courses/progress';
 import {
   buildSession,
   estimateMinutes,
+  pickNextBestAction,
   type FlashcardCandidate,
   type ConceptCandidate,
   type QuizCandidate,
@@ -52,10 +58,9 @@ function fireConsolidation(courseId: string, userId: string) {
     .catch((e) => console.error('[session] consolidation fire failed', String(e?.message ?? e)));
 }
 
-session.get('/session/today', async (c) => {
-  try {
-    const userId = await getCurrentUserId(c);
-    const courseIdFilter = c.req.query('courseId');
+// Gather the learner's due items across courses, prioritize, and shape the goal.
+// Shared by /session/today (full queue) and /session/next (just nextBestAction).
+async function computeSession(userId: string, courseIdFilter?: string) {
     const now = new Date();
 
     const listed = await callCourseMetadata({ action: 'list', userId });
@@ -153,6 +158,8 @@ session.get('/session/today', async (c) => {
               chapterId: chapter.id,
               questionId: q.id,
               question: stripAnswer(q),
+              chapterAnswered: answered.size,
+              chapterTotal: questions.length,
             });
             gathered += 1;
           }
@@ -174,6 +181,12 @@ session.get('/session/today', async (c) => {
           recommendedReviewsPerDay: requiredReviewsPerDay({
             remainingConcepts: total - mastered,
             daysLeft: daysLeft!,
+          }),
+          deadlineConfidence: deadlineConfidence({
+            totalConcepts: total,
+            masteredConcepts: mastered,
+            daysLeft: daysLeft!,
+            totalDays,
           }),
           ...scheduleStatus({ totalConcepts: total, masteredConcepts: mastered, daysLeft: daysLeft!, totalDays }),
         });
@@ -207,7 +220,7 @@ session.get('/session/today', async (c) => {
       totalConcepts,
     });
 
-    return c.json({
+    return {
       goal: {
         name: courses.length === 1 ? courses[0].title : 'All courses',
         courseId: courses.length === 1 ? courses[0].courseId : null,
@@ -219,7 +232,28 @@ session.get('/session/today', async (c) => {
         byCourse,
       },
       tasks,
-    });
+      // The single primary action — powers the "Continue Learning" button.
+      nextBestAction: pickNextBestAction(tasks),
+    };
+}
+
+// Full session: goal + prioritized queue + nextBestAction.
+session.get('/session/today', async (c) => {
+  try {
+    const userId = await getCurrentUserId(c);
+    return c.json(await computeSession(userId, c.req.query('courseId') ?? undefined));
+  } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
+    return c.json({ error: 'SESSION_UNAVAILABLE', message: e.message }, 500);
+  }
+});
+
+// Just the one next action — cheap payload for "Continue Learning".
+session.get('/session/next', async (c) => {
+  try {
+    const userId = await getCurrentUserId(c);
+    const { nextBestAction } = await computeSession(userId, c.req.query('courseId') ?? undefined);
+    return c.json({ nextBestAction });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
     return c.json({ error: 'SESSION_UNAVAILABLE', message: e.message }, 500);

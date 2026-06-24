@@ -45,3 +45,34 @@ export function scheduleStatus(input: {
     message: `You're ${daysBehind} day${daysBehind === 1 ? '' : 's'} behind schedule.`,
   };
 }
+
+/**
+ * Estimated likelihood (0–100) of mastering everything before the deadline,
+ * comparing the learner's actual mastery pace so far to the pace now required.
+ * A heuristic (logistic on the pace ratio), not a calibrated model — display as
+ * an estimate. Monotonic: more days left and/or a faster actual pace → higher.
+ */
+export function deadlineConfidence(input: {
+  totalConcepts: number;
+  masteredConcepts: number;
+  daysLeft: number;
+  totalDays: number;
+}): number {
+  const { totalConcepts, masteredConcepts, daysLeft, totalDays } = input;
+  const remaining = totalConcepts - masteredConcepts;
+  if (totalConcepts === 0 || remaining <= 0) return 100; // nothing left to learn
+  if (daysLeft <= 0) return 0; // out of time with work remaining
+
+  const elapsed = Math.max(1, totalDays - Math.max(0, daysLeft));
+  const actualPace = masteredConcepts / elapsed; // concepts mastered/day so far
+  const requiredPace = remaining / daysLeft; // concepts/day still needed
+
+  // No progress yet: low confidence, with a little credit for having time.
+  if (actualPace <= 0) {
+    return Math.max(5, Math.min(40, Math.round((daysLeft / Math.max(1, totalDays)) * 40)));
+  }
+
+  const ratio = actualPace / requiredPace; // >=1 means on pace or ahead
+  const conf = 100 / (1 + Math.exp(-1.6 * (ratio - 1))); // ratio 1→50, 2→~83
+  return Math.max(1, Math.min(99, Math.round(conf)));
+}

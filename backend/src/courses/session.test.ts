@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   buildSession,
   estimateMinutes,
+  pickNextBestAction,
   type FlashcardCandidate,
   type ConceptCandidate,
   type QuizCandidate,
@@ -104,5 +105,44 @@ const mins = estimateMinutes(
   buildSession({ flashcards: [overdueCard, newCard], concepts: [atRisk], quiz: [], now }),
 );
 assert.strictEqual(mins, Math.round(0.5 + 0.5 + 1.5), 'minutes = sum of per-task estimates');
+
+// --- nextBestAction = the single highest-priority task ---------------------
+const nba = pickNextBestAction(tasks);
+assert.ok(nba && nba.type === 'FLASHCARD' && nba.cardId === 'card-late', 'nextBestAction is the top task');
+assert.strictEqual(pickNextBestAction([]), null, 'no tasks → null next action');
+
+// --- Estimated learning gain orders WITHIN a tier (lower mastery first) -----
+const weakHigh: ConceptCandidate = {
+  ...weakConcept, conceptSlug: 'weak-high', reviewId: 'c1::weak-high::q1', masteryScore: 80,
+};
+const weakLow: ConceptCandidate = {
+  ...weakConcept, conceptSlug: 'weak-low', reviewId: 'c1::weak-low::q1', masteryScore: 30,
+};
+const gainOrder = buildSession({ flashcards: [], concepts: [weakHigh, weakLow], quiz: [], now }).map(
+  (t) => (t.kind === 'review' ? t.conceptSlug : ''),
+);
+assert.ok(gainOrder.indexOf('weak-low') < gainOrder.indexOf('weak-high'), 'lower mastery = higher learning gain ranks first');
+
+// --- Unfinished-chapter boost ---------------------------------------------
+const startedQuiz: QuizCandidate = {
+  courseId: 'c1', courseTitle: 'C1', chapterId: 'chA', questionId: 'qa', question: { id: 'qa' },
+  chapterAnswered: 4, chapterTotal: 5,
+};
+const freshQuiz: QuizCandidate = {
+  courseId: 'c1', courseTitle: 'C1', chapterId: 'chB', questionId: 'qb', question: { id: 'qb' },
+  chapterAnswered: 0, chapterTotal: 5,
+};
+const qzOrder = buildSession({ flashcards: [], concepts: [], quiz: [freshQuiz, startedQuiz], now });
+assert.ok(
+  qzOrder.findIndex((t) => t.kind === 'quiz' && t.questionId === 'qa') <
+    qzOrder.findIndex((t) => t.kind === 'quiz' && t.questionId === 'qb'),
+  'started-chapter question ranks before a brand-new chapter',
+);
+const startedReason = qzOrder.find((t) => t.kind === 'quiz' && t.questionId === 'qa')!.reason;
+assert.strictEqual(startedReason, 'Finish the chapter you started');
+
+// Boosted quiz must still rank below a concept review (stays in tier 5).
+const tierSafe = buildSession({ flashcards: [], concepts: [weakConcept], quiz: [startedQuiz], now });
+assert.strictEqual(tierSafe[0].kind, 'review', 'a boosted quiz never outranks a concept review');
 
 console.log('session.test.ts OK');

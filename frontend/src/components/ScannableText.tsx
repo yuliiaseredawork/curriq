@@ -4,8 +4,16 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { KeyTerm } from './KeyTerm';
 
 // Lightweight "scannable reading" layer: splits long text into shorter
-// paragraphs and highlights key terms — all via safe React tokenization
-// (no dangerouslySetInnerHTML, so no XSS risk).
+// paragraphs and (optionally) highlights key terms — all via safe React
+// tokenization (no dangerouslySetInnerHTML, so no XSS risk).
+//
+// Feature flag: decorative key-term highlighting on learner-facing text.
+// Disabled — automatic highlighting of arbitrary noun phrases ("developers
+// rarely", "consumers reading") read as broken markup and lowered trust. With
+// it off, ScannableText still preserves all real formatting (paragraphs, line
+// breaks, "Show more" clamping, inline rendering); it just renders plain text.
+// Flip to `true` to restore highlighting. (Single-flag, reversible by design.)
+const HIGHLIGHT_KEY_TERMS = false;
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -114,7 +122,12 @@ export function ScannableText({
   const [expanded, setExpanded] = useState(false);
   const safe = (text ?? '').trim();
 
-  const regex = useMemo(() => buildTermRegex(keyTerms), [keyTerms.join('|')]);
+  // When the flag is off, no regex → highlight() returns plain text, so no
+  // <KeyTerm> spans are ever produced (paragraph/clamp/inline behavior intact).
+  const regex = useMemo(
+    () => (HIGHLIGHT_KEY_TERMS ? buildTermRegex(keyTerms) : null),
+    [keyTerms.join('|')],
+  );
 
   const collapsible = !!clampChars && safe.length > (clampChars ?? 0);
   const isClamped = collapsible && !expanded;

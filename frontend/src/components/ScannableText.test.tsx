@@ -7,7 +7,7 @@
 import assert from 'node:assert';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ScannableText } from './ScannableText';
+import { ScannableText, splitParagraphs } from './ScannableText';
 
 // The amber classes KeyTerm would apply if highlighting were on.
 const HIGHLIGHT_CLASSES = ['bg-yellow-400/10', 'text-yellow-200'];
@@ -64,6 +64,48 @@ assert.strictEqual(
 // Real formatting preserved: blank lines become separate paragraphs.
 const multiParagraph = render({ text: 'First paragraph.\n\nSecond paragraph.' });
 assert.strictEqual((multiParagraph.match(/<p\b/g) ?? []).length, 2, 'paragraph breaks preserved as separate <p>');
+
+// --- splitParagraphs is LOSSLESS for long blocks with mid-token periods -----
+// Regression for the corrupted flashcard: a >320-char block containing "e.g."
+// (a period NOT followed by whitespace) previously had its head silently
+// dropped by `String.match`, rendering as ", processing + auditing)".
+const longAnswer =
+  'Two separate groups each maintain independent offsets and every group reads ALL partitions autonomously — useful for independent use-cases (e.g., processing + auditing). One group with two consumers splits the partitions between them (each consumer gets a subset), so no message is processed twice within the group. Different groups never coordinate; a single group always splits partitions.';
+
+const parts = splitParagraphs(longAnswer);
+assert.ok(parts.length > 1, 'long answer is chunked into multiple paragraphs');
+// First chunk keeps the head, not the orphaned tail.
+assert.ok(
+  parts[0].startsWith('Two separate groups each maintain independent offsets'),
+  'first paragraph starts at the real head, not mid-sentence',
+);
+assert.ok(
+  !parts.some((p) => /^[,.;:)]/.test(p)),
+  'no paragraph begins with stray punctuation',
+);
+// Lossless: rejoining yields exactly the source (whitespace-normalized).
+assert.strictEqual(
+  parts.join(' ').replace(/\s+/g, ' ').trim(),
+  longAnswer.replace(/\s+/g, ' ').trim(),
+  'every character of the source survives the split',
+);
+// The "(e.g., …)" clause stays intact with balanced parens.
+assert.ok(parts.join(' ').includes('(e.g., processing + auditing)'), '(e.g., …) preserved');
+
+// --- render: the known-good answer renders in full --------------------------
+const renderedAnswer = render({ text: longAnswer, className: 'text-gray-200' });
+assert.ok(
+  renderedAnswer.includes('Two separate groups each maintain independent offsets'),
+  'rendered answer includes the head sentence',
+);
+assert.ok(
+  renderedAnswer.includes('(e.g., processing + auditing)'),
+  'rendered answer includes the (e.g., …) clause',
+);
+assert.ok(
+  !/<p[^>]*>\s*,/.test(renderedAnswer),
+  'no <p> begins with a leading comma',
+);
 
 console.log('snapshot — flashcard front:\n ', flashFront);
 console.log('snapshot — quiz option:\n ', quizOption);

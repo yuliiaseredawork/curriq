@@ -18,6 +18,7 @@ import {
 import { listMastery, getMastery, putMastery } from '../../storage/focus-areas';
 import { applySessionResult } from '../../courses/mastery';
 import { generateFlashcards } from '../../agents/flashcard-writer';
+import { validateFlashcardAnswer } from '../../courses/flashcard-validation';
 import type { ReviewQuality } from '../../courses/sm2';
 
 export const flashcards = new Hono();
@@ -166,9 +167,18 @@ flashcards.post('/flashcards/:cardId/reveal', async (c) => {
     const { courseId } = RevealInput.parse(await c.req.json());
     const card = await getCard(userId, courseId, cardId);
     if (!card) return c.json({ error: 'CARD_NOT_FOUND' }, 404);
+    // Defensive: never present an answer that looks truncated/corrupted as-is.
+    const check = validateFlashcardAnswer(card.back);
+    if (!check.valid) {
+      console.warn(
+        `[flashcards/reveal] malformed answer (${check.reason}) card=${cardId} course=${courseId}`,
+      );
+    }
     return c.json({
       cardId,
       back: card.back,
+      malformed: !check.valid,
+      malformedReason: check.valid ? null : check.reason ?? null,
       sourceQuote: card.sourceQuote ?? null,
       misconceptionTarget: card.misconceptionTarget ?? null,
     });

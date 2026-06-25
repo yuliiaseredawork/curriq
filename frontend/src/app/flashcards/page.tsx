@@ -116,7 +116,13 @@ export default function FlashcardsPage() {
 
         {back && (
           <div className="border-t border-gray-800 pt-4 space-y-2">
-            <ScannableText text={back.back} keyTerms={keyTerms} className="text-gray-200" />
+            {back.malformed ? (
+              <p className="text-sm text-yellow-400">
+                This answer looks incomplete and is being reviewed. Please skip this card for now.
+              </p>
+            ) : (
+              <ScannableText text={back.back} keyTerms={keyTerms} className="text-gray-200" />
+            )}
             {back.sourceQuote && (
               <p className="text-xs text-gray-500 italic">“{back.sourceQuote}”</p>
             )}

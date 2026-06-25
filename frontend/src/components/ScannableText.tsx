@@ -43,8 +43,18 @@ function buildTermRegex(terms: string[]): RegExp | null {
   }
 }
 
-/** Split into readable paragraphs: honor newlines, then chunk long blocks. */
-function splitParagraphs(text: string, maxLen = 320): string[] {
+/**
+ * Split into readable paragraphs: honor newlines, then chunk long blocks at
+ * sentence boundaries. LOSSLESS by construction — we split only at real
+ * boundaries (sentence punctuation followed by whitespace) and re-join with a
+ * single space, so every character of the source is preserved.
+ *
+ * The previous implementation used `String.match(/…/g)`, which silently DROPS
+ * any text it can't anchor on. Mid-token periods (e.g. "e.g.", "i.e.", decimals)
+ * broke the anchor and the head of the block was lost (it rendered starting
+ * ", processing + auditing)" instead of the full sentence). Exported for tests.
+ */
+export function splitParagraphs(text: string, maxLen = 320): string[] {
   const blocks = text
     .split(/\n{1,}/)
     .map((t) => t.trim())
@@ -55,17 +65,19 @@ function splitParagraphs(text: string, maxLen = 320): string[] {
       out.push(block);
       continue;
     }
-    const sentences = block.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) ?? [block];
+    // Split only at whitespace following sentence punctuation — keeps "e.g."
+    // and decimals intact and never discards characters.
+    const sentences = block.split(/(?<=[.!?])\s+/);
     let acc = '';
     for (const s of sentences) {
-      if (acc && (acc + s).length > maxLen) {
-        out.push(acc.trim());
+      if (acc && (acc + ' ' + s).length > maxLen) {
+        out.push(acc);
         acc = s;
       } else {
-        acc += s;
+        acc = acc ? `${acc} ${s}` : s;
       }
     }
-    if (acc.trim()) out.push(acc.trim());
+    if (acc) out.push(acc);
   }
   return out;
 }

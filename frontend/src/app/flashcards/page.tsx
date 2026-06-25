@@ -4,14 +4,8 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
+import { RatingButtons } from '@/components/RatingButtons';
 import { extractKeyTerms } from '@/lib/highlightTerms';
-
-const RATINGS: Array<{ key: string; label: string; cls: string }> = [
-  { key: 'AGAIN', label: 'Again', cls: 'bg-red-600' },
-  { key: 'HARD', label: 'Hard', cls: 'bg-orange-600' },
-  { key: 'GOOD', label: 'Good', cls: 'bg-blue-600' },
-  { key: 'EASY', label: 'Easy', cls: 'bg-green-600' },
-];
 
 export default function FlashcardsPage() {
   const { getToken, isLoaded } = useAuth();
@@ -150,18 +144,7 @@ export default function FlashcardsPage() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-2">
-          {RATINGS.map((r) => (
-            <button
-              key={r.key}
-              disabled={rating}
-              className={`rounded-lg ${r.cls} px-3 py-3 text-sm font-medium text-white disabled:opacity-50`}
-              onClick={() => handleRate(r.key)}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <RatingButtons onRate={handleRate} disabled={rating} />
       )}
     </Shell>
   );

@@ -7,6 +7,8 @@ import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { extractKeyTerms, titleTerms } from '@/lib/highlightTerms';
 import { courseIdentity } from '@/lib/courseIdentity';
+import { learningProgressView, chapterStatusLabel } from '@/lib/learnerCopy';
+import { sessionHref } from '@/lib/sessionScope';
 
 export default function CoursePage({
   params,
@@ -28,7 +30,6 @@ export default function CoursePage({
   const [course, setCourse] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
   const [error, setError] = useState('');
-  const [resumeLoading, setResumeLoading] = useState(false);
   const [focusAreas, setFocusAreas] = useState<any[]>([]);
   const [masteredAreas, setMasteredAreas] = useState<any[]>([]);
   const [focusPreparing, setFocusPreparing] = useState(false);
@@ -130,26 +131,10 @@ export default function CoursePage({
     router.push(`/courses/${courseId}/focus/${encodeURIComponent(conceptSlug)}`);
   }
 
-  async function handleContinue() {
-    if (!userId) return;
-    setResumeLoading(true);
-    setError('');
-    try {
-      const resume = await api.getResume(courseId, userId);
-      if (resume.status === 'CONTINUE' || resume.status === 'QUIZ_NOT_READY') {
-        router.push(`/courses/${courseId}/chapters/${resume.chapterId}`);
-        return;
-      }
-      if (resume.status === 'COMPLETED') {
-        setError('You completed all generated quizzes for this course.');
-        return;
-      }
-      setError('Could not find where to continue.');
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to resume course');
-    } finally {
-      setResumeLoading(false);
-    }
+  function handleContinue() {
+    // Canonical entry: a course-scoped session (same endpoint as "Start
+    // Session", just scoped) — no separate single-course/chapter flow.
+    router.push(sessionHref(courseId));
   }
 
   if (error) {
@@ -207,46 +192,24 @@ export default function CoursePage({
           );
         })()}
 
-        {(progress || retention) && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
-            <div className="flex items-center justify-between">
+        {(progress || retention) && (() => {
+          const view = learningProgressView({
+            pct: retention?.learningProgress ?? progress?.completionPercent ?? 0,
+            answered: progress?.answeredQuestions ?? 0,
+          });
+          return (
+            <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
               <div>
                 <div className="text-sm text-gray-400">Learning progress</div>
-                <div className="text-2xl font-semibold">
-                  {retention?.learningProgress != null
-                    ? retention.learningProgress
-                    : progress?.completionPercent ?? 0}
-                  %
-                </div>
+                <div className="text-2xl font-semibold">{view.headline}</div>
               </div>
-              {progress && (
-                <div className="text-sm text-gray-400 text-right">
-                  {progress.answeredQuestions} / {progress.totalQuestions} quiz questions
-                </div>
-              )}
-            </div>
-            <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
-              <div
-                className="h-full bg-blue-500"
-                style={{
-                  width: `${
-                    retention?.learningProgress != null
-                      ? retention.learningProgress
-                      : progress?.completionPercent ?? 0
-                  }%`,
-                }}
-              />
-            </div>
-            {retention?.breakdown && (
-              <div className="text-xs text-gray-500">
-                Mastery {retention.breakdown.avgConceptMastery}% · Quizzes{' '}
-                {Math.round(retention.breakdown.quizCompletion)}% · Retention{' '}
-                {retention.breakdown.retentionScore}% · Reviews{' '}
-                {Math.round(retention.breakdown.reviewActivity)}%
+              <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full bg-blue-500" style={{ width: `${view.pct}%` }} />
               </div>
-            )}
-          </div>
-        )}
+              <div className="text-sm text-gray-400">{view.status}</div>
+            </div>
+          );
+        })()}
 
         {(course.metadata?.targetDate || retention || cardsDue) && (
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 grid grid-cols-2 gap-4 sm:grid-cols-5 text-sm">
@@ -418,11 +381,10 @@ export default function CoursePage({
         )}
 
         <button
-          className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
+          className="rounded-lg bg-white text-black px-5 py-3 font-medium"
           onClick={handleContinue}
-          disabled={resumeLoading}
         >
-          {resumeLoading ? 'Finding next lesson...' : 'Continue learning'}
+          Continue learning
         </button>
 
         <div className="space-y-4">
@@ -476,7 +438,14 @@ export default function CoursePage({
                 {chapterProgress && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm text-gray-400">
-                      <span>{chapterProgress.status}</span>
+                      {(() => {
+                        const s = chapterStatusLabel(chapterProgress.status);
+                        return (
+                          <span>
+                            <span aria-hidden="true">{s.icon}</span> {s.text}
+                          </span>
+                        );
+                      })()}
                       <span>
                         {chapterProgress.totalQuestions > 0
                           ? `${chapterProgress.answeredQuestions} / ${chapterProgress.totalQuestions} questions`
@@ -494,7 +463,7 @@ export default function CoursePage({
 
                 {quizState === 'READY' && (
                   <a
-                    href={`/courses/${courseId}/chapters/${chapter.id}`}
+                    href={sessionHref(courseId)}
                     className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
                   >
                     {buttonLabel}

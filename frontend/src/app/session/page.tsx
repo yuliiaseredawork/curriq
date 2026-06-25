@@ -1,22 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
+import { RatingButtons } from '@/components/RatingButtons';
+import { McqChoices } from '@/components/McqChoices';
 import { extractKeyTerms } from '@/lib/highlightTerms';
+import { sessionProgressLabel } from '@/lib/learnerCopy';
+import { parseSessionScope } from '@/lib/sessionScope';
 
-const RATINGS: Array<{ key: string; label: string; cls: string }> = [
-  { key: 'AGAIN', label: 'Again', cls: 'bg-red-600' },
-  { key: 'HARD', label: 'Hard', cls: 'bg-orange-600' },
-  { key: 'GOOD', label: 'Good', cls: 'bg-blue-600' },
-  { key: 'EASY', label: 'Easy', cls: 'bg-green-600' },
-];
-
-export default function SessionPage() {
+function SessionInner() {
   const { getToken, isLoaded } = useAuth();
   const { user, isLoaded: userLoaded } = useUser();
   const api = createApiClient(getToken);
+
+  // "All courses" vs "one course" is just a scope param on the same session.
+  const searchParams = useSearchParams();
+  const scopeCourseId = parseSessionScope(searchParams);
 
   const userId = user?.primaryEmailAddress?.emailAddress
     ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
@@ -42,7 +44,7 @@ export default function SessionPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.getSessionToday();
+      const res = await api.getSessionToday(scopeCourseId);
       setGoal(res.goal);
       setTasks(res.tasks ?? []);
       setIndex(0);
@@ -58,7 +60,7 @@ export default function SessionPage() {
     if (!isLoaded || !userLoaded) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, userLoaded]);
+  }, [isLoaded, userLoaded, scopeCourseId]);
 
   function resetTaskState() {
     setBack(null);
@@ -163,10 +165,7 @@ export default function SessionPage() {
     <Shell>
       <div className="flex items-center justify-between text-sm">
         <span className="text-blue-300">
-          Task {index + 1} / {tasks.length} · {task.courseTitle}
-        </span>
-        <span className="rounded-full border border-gray-700 px-2 py-0.5 text-xs text-gray-400">
-          {task.reason}
+          {sessionProgressLabel(index, tasks.length)} · {task.courseTitle}
         </span>
       </div>
 
@@ -186,9 +185,8 @@ export default function SessionPage() {
     const keyTerms = extractKeyTerms({ text: [task.front, back?.back], explicit: [task.concept] });
     return (
       <>
-        <div className="text-sm text-purple-300">Flashcard · {task.concept}</div>
+        <div className="text-sm text-purple-300">{task.concept}</div>
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4 min-h-[180px]">
-          <div className="text-xs uppercase tracking-wide text-gray-500">{task.type}</div>
           <ScannableText text={task.front} keyTerms={keyTerms} className="text-lg font-medium" />
           {back && (
             <div className="border-t border-gray-800 pt-4 space-y-2">
@@ -222,18 +220,7 @@ export default function SessionPage() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-2">
-            {RATINGS.map((r) => (
-              <button
-                key={r.key}
-                disabled={busy}
-                className={`rounded-lg ${r.cls} px-3 py-3 text-sm font-medium text-white disabled:opacity-50`}
-                onClick={() => handleRate(r.key)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
+          <RatingButtons onRate={handleRate} disabled={busy} />
         )}
       </>
     );
@@ -262,20 +249,13 @@ export default function SessionPage() {
           )}
 
           {q.type === 'mcq' && q.choices?.length ? (
-            <div className="space-y-2">
-              {q.choices.map((choice: string) => (
-                <button
-                  key={choice}
-                  disabled={busy || !!feedback}
-                  className={`block w-full text-left rounded-lg border px-4 py-3 disabled:cursor-not-allowed ${
-                    answer === choice ? 'border-blue-500 bg-blue-950' : 'border-gray-700 bg-gray-950'
-                  }`}
-                  onClick={() => setAnswer(choice)}
-                >
-                  <ScannableText inline text={choice} keyTerms={keyTermsForQuestion} />
-                </button>
-              ))}
-            </div>
+            <McqChoices
+              choices={q.choices}
+              selected={answer}
+              onSelect={setAnswer}
+              disabled={busy || !!feedback}
+              keyTerms={keyTermsForQuestion}
+            />
           ) : (
             <textarea
               className="w-full rounded-lg bg-gray-950 border border-gray-700 px-4 py-3 disabled:opacity-60"
@@ -342,6 +322,15 @@ export default function SessionPage() {
       </>
     );
   }
+}
+
+// useSearchParams (scope param) must be read inside a Suspense boundary.
+export default function SessionPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-950" />}>
+      <SessionInner />
+    </Suspense>
+  );
 }
 
 /** Normalize the two answer-feedback shapes (reviews vs. study) into one view model. */

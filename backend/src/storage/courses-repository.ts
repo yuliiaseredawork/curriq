@@ -54,7 +54,13 @@ export async function runMigrations() {
         ADD COLUMN IF NOT EXISTS source_url text,
         ADD COLUMN IF NOT EXISTS source_file_key text,
         ADD COLUMN IF NOT EXISTS source_file_name text,
+        ADD COLUMN IF NOT EXISTS source_key text,
         ADD COLUMN IF NOT EXISTS target_date timestamptz;
+    `);
+    // Per-user dedup lookup by source key.
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS courses_user_source_key_idx
+        ON public.courses (user_id, source_key);
     `);
     // PDF courses have no playlist — relax the legacy NOT NULL constraint.
     await client.query(`
@@ -82,6 +88,7 @@ export async function upsertCourse(input: {
   sourceUrl?: string | null;
   sourceFileKey?: string | null;
   sourceFileName?: string | null;
+  sourceKey?: string | null;
   targetDate?: string | null;
 }) {
   const client = await createClient();
@@ -101,11 +108,12 @@ export async function upsertCourse(input: {
         source_url,
         source_file_key,
         source_file_name,
+        source_key,
         target_date,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), now())
       ON CONFLICT (id)
       DO UPDATE SET
         title = EXCLUDED.title,
@@ -121,6 +129,7 @@ export async function upsertCourse(input: {
         source_url = COALESCE(EXCLUDED.source_url, public.courses.source_url),
         source_file_key = COALESCE(EXCLUDED.source_file_key, public.courses.source_file_key),
         source_file_name = COALESCE(EXCLUDED.source_file_name, public.courses.source_file_name),
+        source_key = COALESCE(EXCLUDED.source_key, public.courses.source_key),
         target_date = COALESCE(EXCLUDED.target_date, public.courses.target_date)
       `,
       [
@@ -135,9 +144,40 @@ export async function upsertCourse(input: {
         input.sourceUrl ?? input.playlistUrl ?? null,
         input.sourceFileKey ?? null,
         input.sourceFileName ?? null,
+        input.sourceKey ?? null,
         input.targetDate ?? null,
       ],
     );
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Find a non-FAILED course for this user with the given source key (for dedup).
+ * FAILED courses are intentionally excluded so a user can re-create after a
+ * failure. Scoped to userId — dedup is per-user only.
+ */
+export async function findCourseBySourceKey(input: {
+  userId: string;
+  sourceKey: string;
+}): Promise<{ courseId: string; title: string } | null> {
+  const client = await createClient();
+  try {
+    const result = await client.query(
+      `
+      SELECT id, title
+      FROM public.courses
+      WHERE user_id = $1
+        AND source_key = $2
+        AND status <> 'FAILED'
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [input.userId, input.sourceKey],
+    );
+    const r = result.rows[0];
+    return r ? { courseId: r.id, title: r.title } : null;
   } finally {
     await client.end();
   }
@@ -161,6 +201,37 @@ export async function updateCourseStatus(input: {
       `,
       [input.courseId, input.status, input.errorMessage ?? null],
     );
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Atomically transition a course only if it is currently in `fromStatus`.
+ * Returns true iff a row was updated. Used by retry to guard against a
+ * double-click double-invoke: only the request that actually flips FAILED ->
+ * CREATED proceeds to re-run the pipeline.
+ */
+export async function transitionCourseStatus(input: {
+  courseId: string;
+  fromStatus: CourseStatus;
+  toStatus: CourseStatus;
+  errorMessage?: string | null;
+}): Promise<boolean> {
+  const client = await createClient();
+  try {
+    const result = await client.query(
+      `
+      UPDATE public.courses
+      SET status = $3,
+          error_message = $4,
+          updated_at = now()
+      WHERE id = $1
+        AND status = $2
+      `,
+      [input.courseId, input.fromStatus, input.toStatus, input.errorMessage ?? null],
+    );
+    return (result.rowCount ?? 0) > 0;
   } finally {
     await client.end();
   }

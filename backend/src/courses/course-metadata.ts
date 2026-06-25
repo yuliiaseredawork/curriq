@@ -3,6 +3,8 @@ import {
   getCourseMetadataForUser,
   listCourses,
   updateCourseStatus,
+  transitionCourseStatus,
+  findCourseBySourceKey,
   upsertCourse,
   runMigrations,
   type SourceType,
@@ -30,6 +32,7 @@ type Event =
       sourceUrl?: string | null;
       sourceFileKey?: string | null;
       sourceFileName?: string | null;
+      sourceKey?: string | null;
       targetDate?: string | null;
   }
   | { action: 'migrate' }
@@ -38,6 +41,18 @@ type Event =
       courseId: string;
       status: CourseStatus;
       errorMessage?: string | null;
+    }
+  | {
+      action: 'transitionStatus';
+      courseId: string;
+      fromStatus: CourseStatus;
+      toStatus: CourseStatus;
+      errorMessage?: string | null;
+    }
+  | {
+      action: 'findBySourceKey';
+      userId: string;
+      sourceKey: string;
     }
   | {
       action: 'list';
@@ -78,6 +93,30 @@ export const handler = async (event: Event) => {
     return {
       status: 'OK',
       courseId: event.courseId,
+    };
+  }
+
+  if (event.action === 'transitionStatus') {
+    const transitioned = await transitionCourseStatus({
+      courseId: event.courseId,
+      fromStatus: event.fromStatus,
+      toStatus: event.toStatus,
+      errorMessage: event.errorMessage ?? null,
+    });
+
+    return {
+      status: 'OK',
+      courseId: event.courseId,
+      transitioned,
+    };
+  }
+
+  if (event.action === 'findBySourceKey') {
+    return {
+      course: await findCourseBySourceKey({
+        userId: event.userId,
+        sourceKey: event.sourceKey,
+      }),
     };
   }
 

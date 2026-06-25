@@ -10,6 +10,7 @@ import { parseYouTubeUrl } from '../youtube/parse-youtube-url';
 import { saveCourseManifest, saveOutline } from '../storage/course-artifacts';
 import { generateOutlineFromChunks } from '../agents/outliner';
 import { callCourseMetadata } from './course-metadata-client';
+import { toUserSafeReason } from './failure-reason';
 
 const lambda = new LambdaClient({});
 
@@ -233,8 +234,9 @@ export const handler = async (event: {
       title: outline.title,
     };
   } catch (e: any) {
-    const errorMessage = String(e?.message ?? e);
-    console.error('[generate-course] FAILED', { courseId, userId, error: errorMessage });
+    const rawError = String(e?.message ?? e);
+    const errorMessage = toUserSafeReason(e);
+    console.error('[generate-course] FAILED', { courseId, userId, error: rawError });
 
     try {
       await callCourseMetadata({

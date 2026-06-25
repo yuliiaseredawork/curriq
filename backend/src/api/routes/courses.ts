@@ -23,6 +23,9 @@ import {
 
 import { getCurrentUserId, UnauthorizedError } from '../../auth/current-user';
 import { parseYouTubeUrl, InvalidYouTubeUrlError } from '../../youtube/parse-youtube-url';
+import { planCourseRetry } from '../../courses/retry';
+import { youtubeSourceKey, dedupDecision } from '../../courses/source-key';
+import { toUserSafeReason } from '../../courses/failure-reason';
 import { listMastery } from '../../storage/focus-areas';
 import { blendProgress } from '../../courses/progress';
 
@@ -87,6 +90,22 @@ courses.post('/', async (c) => {
     throw e;
   }
 
+  // Per-user dedup: block a second course from the same playlist/video.
+  const sourceKey = youtubeSourceKey(parsed);
+  const existing = await callCourseMetadata({ action: 'findBySourceKey', userId, sourceKey });
+  const decision = dedupDecision(existing?.course);
+  if (decision.duplicate) {
+    return c.json(
+      {
+        error: 'DUPLICATE_SOURCE',
+        message: 'You already have a course from this source.',
+        existingCourseId: decision.existingCourseId,
+        existingTitle: decision.existingTitle,
+      },
+      409,
+    );
+  }
+
   const courseId = randomUUID();
   const isVideo = parsed.sourceType === 'YOUTUBE_VIDEO';
 
@@ -102,6 +121,7 @@ courses.post('/', async (c) => {
     status: 'CREATED',
     sourceType: parsed.sourceType,
     sourceUrl,
+    sourceKey,
     targetDate: input.targetDate ?? null,
   });
 
@@ -144,7 +164,15 @@ courses.get('/', async (c) => {
     userId,
   });
 
-  return c.json(result);
+  // Defensive: ensure every FAILED row carries a user-safe reason — covers
+  // legacy rows that may hold raw error text (idempotent for already-safe text).
+  const courses = (result.courses ?? []).map((co: any) =>
+    co.status === 'FAILED'
+      ? { ...co, errorMessage: toUserSafeReason(co.errorMessage ?? '') }
+      : co,
+  );
+
+  return c.json({ ...result, courses });
 });
 
 courses.get('/:courseId/status', async (c) => {
@@ -157,13 +185,109 @@ courses.get('/:courseId/status', async (c) => {
       courseId,
       status: course.status,
       title: course.title,
-      errorMessage: course.errorMessage,
+      errorMessage:
+        course.status === 'FAILED'
+          ? toUserSafeReason(course.errorMessage ?? '')
+          : course.errorMessage,
       updatedAt: course.updatedAt,
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
     if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
     return c.json({ error: 'COURSE_NOT_FOUND' }, 404);
+  }
+});
+
+// POST /courses/:courseId/retry — re-run generation for a FAILED course on the
+// SAME course id (no new row). Manual only; idempotent via a conditional
+// FAILED -> CREATED transition, so a double-click never double-invokes.
+courses.post('/:courseId/retry', async (c) => {
+  const courseId = c.req.param('courseId');
+
+  try {
+    const { userId, course } = await requireCourseAccess(c, courseId);
+
+    const plan = planCourseRetry(course);
+    if (!plan.ok) {
+      return c.json(
+        {
+          error: 'COURSE_NOT_RETRYABLE',
+          message:
+            plan.reason === 'NOT_FAILED'
+              ? 'This course is not in a failed state, so there is nothing to retry.'
+              : 'This course cannot be retried.',
+        },
+        409,
+      );
+    }
+
+    // Atomically claim the retry: only the request that flips FAILED -> CREATED
+    // proceeds. A concurrent/duplicate retry gets transitioned=false → 409.
+    const transition = await callCourseMetadata({
+      action: 'transitionStatus',
+      courseId,
+      fromStatus: 'FAILED',
+      toStatus: 'CREATED',
+      errorMessage: null,
+    });
+
+    if (!transition?.transitioned) {
+      return c.json(
+        {
+          error: 'COURSE_RETRY_IN_PROGRESS',
+          message: 'A retry is already in progress for this course.',
+        },
+        409,
+      );
+    }
+
+    if (plan.pipeline === 'PDF') {
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: process.env.GENERATE_COURSE_FROM_PDF_FUNCTION_NAME!,
+          InvocationType: InvocationType.Event,
+          Payload: Buffer.from(
+            JSON.stringify({
+              courseId,
+              userId,
+              fileKey: course.sourceFileKey,
+              fileName: course.sourceFileName ?? 'document.pdf',
+            }),
+          ),
+        }),
+      );
+    } else {
+      const sourceUrl = course.sourceUrl ?? course.playlistUrl;
+      const parsed = parseYouTubeUrl(sourceUrl);
+      await lambda.send(
+        new InvokeCommand({
+          FunctionName: process.env.GENERATE_COURSE_FUNCTION_NAME!,
+          InvocationType: InvocationType.Event,
+          Payload: Buffer.from(
+            JSON.stringify({
+              courseId,
+              userId,
+              sourceType: parsed.sourceType,
+              sourceUrl,
+              playlistUrl: sourceUrl,
+              playlistId: parsed.playlistId,
+              videoId: parsed.videoId,
+            }),
+          ),
+        }),
+      );
+    }
+
+    console.log('[POST /courses/:courseId/retry] re-queued', { courseId, pipeline: plan.pipeline });
+
+    return c.json({ courseId, status: 'CREATED' }, 202);
+  } catch (e: any) {
+    if (e instanceof UnauthorizedError) throw e;
+    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    return c.json(
+      { error: 'COURSE_RETRY_FAILED', message: 'Could not start retry. Please try again.' },
+      500,
+    );
   }
 });
 

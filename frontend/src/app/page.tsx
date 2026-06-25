@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser, useClerk } from '@clerk/nextjs';
-import { createApiClient } from '@/lib/api';
-import { courseIdentity } from '@/lib/courseIdentity';
+import { createApiClient, DuplicateSourceError } from '@/lib/api';
+import { CourseCard } from '@/components/CourseCard';
 
 export default function Home() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -25,6 +25,8 @@ export default function Home() {
   const [customDate, setCustomDate] = useState('');
   const [session, setSession] = useState<any>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<{ courseId?: string; title?: string } | null>(null);
 
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
 
@@ -40,6 +42,19 @@ export default function Home() {
       setSession(await api.getSessionToday().catch(() => null));
     } catch {
       // best-effort
+    }
+  }
+
+  async function handleRetry(courseId: string) {
+    setRetryingId(courseId);
+    setError('');
+    try {
+      await api.retryCourse(courseId);
+      await loadCourses();
+    } catch (e: any) {
+      setError(e.message ?? 'Retry failed');
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -69,6 +84,7 @@ export default function Home() {
   async function handleGenerate() {
     setLoading(true);
     setError('');
+    setDuplicate(null);
     try {
       const created = await api.createCourse(playlistUrl, computeTargetDate());
       setPlaylistUrl('');
@@ -76,7 +92,11 @@ export default function Home() {
       await loadCourses();
       await loadToday();
     } catch (e: any) {
-      setError(e.message ?? 'Something went wrong');
+      if (e instanceof DuplicateSourceError) {
+        setDuplicate({ courseId: e.existingCourseId, title: e.existingTitle });
+      } else {
+        setError(e.message ?? 'Something went wrong');
+      }
     } finally {
       setLoading(false);
     }
@@ -86,6 +106,7 @@ export default function Home() {
     if (!pdfFile) return;
     setLoading(true);
     setError('');
+    setDuplicate(null);
     setPdfStatus('Uploading PDF…');
     try {
       const reserved = await api.requestPdfUploadUrl(
@@ -94,13 +115,17 @@ export default function Home() {
       );
       await api.uploadFileToPresignedUrl(reserved.uploadUrl, pdfFile);
       setPdfStatus('Processing PDF & generating outline…');
-      await api.completePdfCourse(reserved.courseId);
+      await api.completePdfCourse(reserved.courseId, pdfFile.name);
       await waitForCourseReady(reserved.courseId);
       setPdfStatus('Quizzes generating in background.');
       setPdfFile(null);
       await loadCourses();
     } catch (e: any) {
-      setError(e.message ?? 'PDF course generation failed');
+      if (e instanceof DuplicateSourceError) {
+        setDuplicate({ courseId: e.existingCourseId, title: e.existingTitle });
+      } else {
+        setError(e.message ?? 'PDF course generation failed');
+      }
     } finally {
       setLoading(false);
       setPdfStatus('');
@@ -262,6 +287,19 @@ export default function Home() {
               {error}
             </div>
           )}
+
+          {duplicate && (
+            <div className="rounded-lg border border-yellow-600 bg-yellow-950/40 p-4 text-yellow-100">
+              You already have a course from this source.{' '}
+              {duplicate.courseId ? (
+                <a className="underline" href={`/courses/${duplicate.courseId}`}>
+                  Open {duplicate.title ?? 'the existing course'}
+                </a>
+              ) : (
+                'Check My Courses below.'
+              )}
+            </div>
+          )}
         </section>
 
         {session?.goal?.taskCount > 0 && (
@@ -350,47 +388,12 @@ export default function Home() {
 
           <div className="space-y-3">
             {courses.map((course) => (
-              <a
+              <CourseCard
                 key={course.courseId}
-                href={`/courses/${course.courseId}`}
-                className="block rounded-xl border border-gray-800 bg-gray-900 p-5 hover:bg-gray-800 transition"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      {(() => {
-                        const id = courseIdentity(course.title);
-                        return (
-                          <span
-                            className={`shrink-0 rounded-lg border ${id.accentClass} px-2 py-0.5 text-sm`}
-                            title={id.category}
-                          >
-                            {id.icon}
-                          </span>
-                        );
-                      })()}
-                      <h3 className="text-lg font-semibold">
-                        {course.title ?? 'Untitled course'}
-                      </h3>
-                      <span className="shrink-0 rounded-full border border-gray-700 px-2 py-0.5 text-xs text-gray-400">
-                        {course.sourceType === 'PDF'
-                          ? 'PDF'
-                          : course.sourceType === 'YOUTUBE_VIDEO'
-                            ? 'YouTube video'
-                            : 'YouTube playlist'}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-400 break-all">
-                      {course.sourceType === 'PDF'
-                        ? course.sourceFileName
-                        : course.sourceUrl ?? course.playlistUrl}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300">
-                    {course.status}
-                  </span>
-                </div>
-              </a>
+                course={course}
+                onRetry={handleRetry}
+                retrying={retryingId === course.courseId}
+              />
             ))}
           </div>
         </section>

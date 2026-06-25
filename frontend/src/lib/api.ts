@@ -2,6 +2,34 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 type GetToken = () => Promise<string | null>;
 
+// A blocked-duplicate (409) carries the existing course so the UI can link to it.
+export class DuplicateSourceError extends Error {
+  code = 'DUPLICATE_SOURCE' as const;
+  existingCourseId?: string;
+  existingTitle?: string;
+  constructor(message: string, existingCourseId?: string, existingTitle?: string) {
+    super(message);
+    this.name = 'DuplicateSourceError';
+    this.existingCourseId = existingCourseId;
+    this.existingTitle = existingTitle;
+  }
+}
+
+async function throwForResponse(res: Response): Promise<never> {
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({} as any));
+    if (body?.error === 'DUPLICATE_SOURCE') {
+      throw new DuplicateSourceError(
+        body.message ?? 'You already have a course from this source.',
+        body.existingCourseId,
+        body.existingTitle,
+      );
+    }
+    throw new Error(body?.message ?? `HTTP 409`);
+  }
+  throw new Error((await res.text()) || `HTTP ${res.status}`);
+}
+
 async function authHeaders(getToken: GetToken): Promise<HeadersInit> {
   const token = await getToken();
   if (!token) throw new Error('Not authenticated');
@@ -29,7 +57,7 @@ export function createApiClient(getToken: GetToken) {
         headers: await h(),
         body: JSON.stringify(targetDate ? { sourceUrl, targetDate } : { sourceUrl }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) await throwForResponse(res);
       return res.json();
     },
 
@@ -176,6 +204,16 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
+    // Re-run generation for a FAILED course (same course id, no duplicate).
+    async retryCourse(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/retry`, {
+        method: 'POST',
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      return res.json();
+    },
+
     async listCourses() {
       const res = await fetch(`${API_URL}/courses`, { headers: await h() });
       if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
@@ -202,12 +240,13 @@ export function createApiClient(getToken: GetToken) {
       if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`);
     },
 
-    async completePdfCourse(courseId: string) {
+    async completePdfCourse(courseId: string, fileName: string) {
       const res = await fetch(`${API_URL}/courses/${courseId}/pdf/complete`, {
         method: 'POST',
         headers: await h(),
+        body: JSON.stringify({ fileName }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) await throwForResponse(res);
       return res.json();
     },
 

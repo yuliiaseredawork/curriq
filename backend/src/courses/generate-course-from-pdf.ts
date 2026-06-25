@@ -23,6 +23,7 @@ import OpenAI from 'openai';
 import { saveOutline } from '../storage/course-artifacts';
 import { generateOutlineFromChunks } from '../agents/outliner';
 import { callCourseMetadata } from './course-metadata-client';
+import { toUserSafeReason } from './failure-reason';
 
 // pdf-parse has no types for the /lib subpath; bundled by esbuild for Lambda.
 // Using the lib entry avoids the package's debug-mode test-file read.
@@ -297,8 +298,9 @@ export const handler = async (event: {
 
     return { courseId, status: 'READY', title: outline.title };
   } catch (e: any) {
-    const errorMessage = String(e?.message ?? e);
-    console.error('[generate-course-from-pdf] FAILED', { courseId, error: errorMessage });
+    const rawError = String(e?.message ?? e);
+    const errorMessage = toUserSafeReason(e);
+    console.error('[generate-course-from-pdf] FAILED', { courseId, error: rawError });
     try {
       await callCourseMetadata({
         action: 'updateStatus',

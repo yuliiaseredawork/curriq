@@ -1,8 +1,10 @@
 import { courseIdentity } from '@/lib/courseIdentity';
+import { courseStatusLabel } from '@/lib/learnerCopy';
 
-// One row in "My Courses". A normal course links to its page; a FAILED course
-// renders as a non-link card showing a plain-language reason and a Retry button
-// (so a failed row is never a dead link into a broken course page).
+// One row in "My Courses":
+//  - FAILED  → non-link card with a plain-language reason + Retry.
+//  - still generating → non-link card with a "Generating…" indicator.
+//  - READY   → link into the course with a clear "Start learning" CTA.
 export function CourseCard({
   course,
   onRetry,
@@ -13,6 +15,7 @@ export function CourseCard({
   retrying?: boolean;
 }) {
   const isFailed = course.status === 'FAILED';
+  const view = courseStatusLabel(course.status);
   const id = courseIdentity(course.title);
 
   const sourceLabel =
@@ -26,7 +29,7 @@ export function CourseCard({
       ? course.sourceFileName
       : course.sourceUrl ?? course.playlistUrl;
 
-  const header = (
+  const header = (statusNode: React.ReactNode) => (
     <div className="flex items-start justify-between gap-4">
       <div className="space-y-1">
         <div className="flex items-center gap-2">
@@ -43,20 +46,18 @@ export function CourseCard({
         </div>
         <p className="text-sm text-gray-400 break-all">{sourceLine}</p>
       </div>
-      <span
-        className={`shrink-0 rounded-full border px-3 py-1 text-xs ${
-          isFailed ? 'border-red-700 text-red-300' : 'border-gray-700 text-gray-300'
-        }`}
-      >
-        {course.status}
-      </span>
+      {statusNode}
     </div>
   );
 
   if (isFailed) {
     return (
       <div className="block rounded-xl border border-red-900 bg-gray-900 p-5">
-        {header}
+        {header(
+          <span className="shrink-0 rounded-full border border-red-700 px-3 py-1 text-xs text-red-300">
+            {course.status}
+          </span>,
+        )}
         <p className="mt-3 text-sm text-red-300">
           {course.errorMessage ?? 'Course generation failed. Please try again.'}
         </p>
@@ -72,12 +73,31 @@ export function CourseCard({
     );
   }
 
+  if (view.generating) {
+    return (
+      <div className="block rounded-xl border border-gray-800 bg-gray-900 p-5">
+        {header(
+          <span className="shrink-0 rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300 animate-pulse">
+            {view.label}
+          </span>,
+        )}
+        <p className="mt-3 text-sm text-gray-500">
+          Building your course — you can leave this page; it’ll be ready here.
+        </p>
+      </div>
+    );
+  }
+
+  // READY
   return (
     <a
       href={`/courses/${course.courseId}`}
-      className="block rounded-xl border border-gray-800 bg-gray-900 p-5 hover:bg-gray-800 transition"
+      className="block rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3 hover:bg-gray-800 transition"
     >
-      {header}
+      {header(null)}
+      <span className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white">
+        Start learning
+      </span>
     </a>
   );
 }

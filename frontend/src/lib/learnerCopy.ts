@@ -51,3 +51,31 @@ export function chapterStatusLabel(status?: string | null): { text: string; icon
 export function sessionProgressLabel(index: number, total: number): string {
   return `${index + 1} of ${total}`;
 }
+
+// Plain-language view of a course's generation status. `generating` drives the
+// "still building" UI (non-clickable card + spinner); `terminal` (READY/FAILED)
+// is when polling can stop. Display-only — the raw enum is unchanged in
+// code/telemetry. FAILED keeps its own dedicated UI, so no label is needed here.
+export type CourseStatusView = { generating: boolean; terminal: boolean; label: string };
+
+export function courseStatusLabel(status?: string | null): CourseStatusView {
+  switch (status) {
+    case 'READY':
+      return { generating: false, terminal: true, label: 'Ready' };
+    case 'FAILED':
+      return { generating: false, terminal: true, label: 'Couldn’t generate' };
+    case 'CREATED':
+    case 'INGESTING':
+    case 'PROCESSING':
+    case 'OUTLINING':
+      return { generating: true, terminal: false, label: 'Generating…' };
+    default:
+      // Unknown/missing status: treat as still working (never a dead link).
+      return { generating: true, terminal: false, label: 'Generating…' };
+  }
+}
+
+/** True while a course is still being built (used to drive background polling). */
+export function isCoursePending(status?: string | null): boolean {
+  return courseStatusLabel(status).generating;
+}

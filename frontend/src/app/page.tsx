@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser, useClerk } from '@clerk/nextjs';
 import { createApiClient, DuplicateSourceError } from '@/lib/api';
 import { CourseCard } from '@/components/CourseCard';
+import { isCoursePending } from '@/lib/learnerCopy';
 
 export default function Home() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -70,27 +71,16 @@ export default function Home() {
     }
   }
 
-  async function waitForCourseReady(courseId: string) {
-    const maxAttempts = 60;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const status = await api.getCourseStatus(courseId);
-      if (status.status === 'READY') return;
-      if (status.status === 'FAILED') throw new Error(status.errorMessage ?? 'Course generation failed');
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-    }
-    throw new Error('Course generation timed out');
-  }
-
   async function handleGenerate() {
     setLoading(true);
     setError('');
     setDuplicate(null);
     try {
-      const created = await api.createCourse(playlistUrl, computeTargetDate());
+      // POST /courses returns 202 immediately; generation runs server-side.
+      // Show the new "Generating…" card now and let background polling finish.
+      await api.createCourse(playlistUrl, computeTargetDate());
       setPlaylistUrl('');
-      await waitForCourseReady(created.courseId);
       await loadCourses();
-      await loadToday();
     } catch (e: any) {
       if (e instanceof DuplicateSourceError) {
         setDuplicate({ courseId: e.existingCourseId, title: e.existingTitle });
@@ -114,10 +104,9 @@ export default function Home() {
         pdfFile.type || 'application/pdf',
       );
       await api.uploadFileToPresignedUrl(reserved.uploadUrl, pdfFile);
-      setPdfStatus('Processing PDF & generating outline…');
+      setPdfStatus('Starting course generation…');
+      // Returns 202; the "Generating…" card + background polling take over.
       await api.completePdfCourse(reserved.courseId, pdfFile.name);
-      await waitForCourseReady(reserved.courseId);
-      setPdfStatus('Quizzes generating in background.');
       setPdfFile(null);
       await loadCourses();
     } catch (e: any) {
@@ -144,6 +133,35 @@ export default function Home() {
     loadToday();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn]);
+
+  // Background polling: while any course is still being generated, refresh the
+  // list so "Generating…" cards flip to "Start learning" on their own. Stops
+  // when nothing is pending (and refreshes the goal once) or after a safe cap.
+  const hasPending = courses.some((c) => isCoursePending(c.status));
+  const pollAttempts = useRef(0);
+  useEffect(() => {
+    if (!hasPending) return;
+    pollAttempts.current = 0;
+    const MAX_ATTEMPTS = 75; // ~5 min at 4s; then stop (manual Refresh remains).
+    const interval = setInterval(() => {
+      pollAttempts.current += 1;
+      if (pollAttempts.current > MAX_ATTEMPTS) {
+        clearInterval(interval);
+        return;
+      }
+      loadCourses();
+    }, 4000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPending]);
+
+  // When the last pending course settles, refresh today's goal once.
+  const prevHasPending = useRef(hasPending);
+  useEffect(() => {
+    if (prevHasPending.current && !hasPending) loadToday();
+    prevHasPending.current = hasPending;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPending]);
 
   // Wait for Clerk before rendering anything that calls the API.
   if (!isLoaded || !isSignedIn) {
@@ -276,9 +294,7 @@ export default function Home() {
 
           {loading && (
             <p className="text-sm text-gray-400">
-              {sourceTab === 'pdf' && pdfStatus
-                ? pdfStatus
-                : 'Generating course in the background. This may take a minute...'}
+              {sourceTab === 'pdf' && pdfStatus ? pdfStatus : 'Adding your course…'}
             </p>
           )}
 

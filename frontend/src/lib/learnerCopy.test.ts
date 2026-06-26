@@ -5,6 +5,8 @@ import {
   chapterStatusLabel,
   sessionProgressLabel,
   CHAPTER_STATUS_LABELS,
+  courseStatusLabel,
+  isCoursePending,
 } from './learnerCopy';
 
 // --- New course: inviting, no naked 0% and no four-metric line --------------
@@ -50,6 +52,30 @@ for (const [, v] of Object.entries(CHAPTER_STATUS_LABELS)) {
 // --- Neutral session progress -----------------------------------------------
 assert.strictEqual(sessionProgressLabel(0, 20), '1 of 20');
 assert.strictEqual(sessionProgressLabel(19, 20), '20 of 20');
+
+// --- Course generation status → plain language + polling control ------------
+for (const s of ['CREATED', 'INGESTING', 'PROCESSING', 'OUTLINING']) {
+  const v = courseStatusLabel(s);
+  assert.strictEqual(v.generating, true, `${s} is still generating`);
+  assert.strictEqual(v.terminal, false, `${s} is not terminal`);
+  assert.strictEqual(v.label, 'Generating…');
+  assert.strictEqual(isCoursePending(s), true, `poll continues while ${s}`);
+}
+const ready = courseStatusLabel('READY');
+assert.deepStrictEqual(ready, { generating: false, terminal: true, label: 'Ready' });
+assert.strictEqual(isCoursePending('READY'), false, 'poll stops when READY');
+const failed = courseStatusLabel('FAILED');
+assert.strictEqual(failed.generating, false);
+assert.strictEqual(failed.terminal, true, 'FAILED is terminal (poll stops)');
+assert.strictEqual(isCoursePending('FAILED'), false, 'poll stops when FAILED');
+// Unknown/missing → treated as pending so a card is never a dead link.
+assert.strictEqual(courseStatusLabel(undefined).generating, true);
+assert.strictEqual(isCoursePending(null), true);
+// No raw enum leaks into a label.
+for (const s of ['CREATED', 'PROCESSING', 'READY', 'FAILED', undefined]) {
+  const { label } = courseStatusLabel(s);
+  assert.ok(!/CREATED|PROCESSING|READY|FAILED|OUTLINING|INGESTING/.test(label), `label leaks enum for ${s}`);
+}
 
 // --- No internal vocabulary leaks across any produced copy ------------------
 const FORBIDDEN = [

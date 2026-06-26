@@ -57,7 +57,7 @@ for (const status of ['CREATED', 'PROCESSING', 'OUTLINING', 'INGESTING']) {
   assert.ok(!/PROCESSING|CREATED|OUTLINING|INGESTING/.test(gen), `${status} shows no raw enum`);
 }
 
-// --- READY row: clickable + "Start learning" CTA ----------------------------
+// --- READY row: single "Start course" CTA → the course hub ------------------
 const readyHtml = renderToStaticMarkup(
   createElement(CourseCard, {
     course: {
@@ -70,8 +70,15 @@ const readyHtml = renderToStaticMarkup(
     onRetry: noop,
   }),
 );
-assert.ok(readyHtml.includes('href="/courses/c-ready"'), 'a READY course links to its page');
-assert.ok(readyHtml.includes('Start learning'), 'a READY course shows a Start learning CTA');
+// READY card opens the course page (the learning path), NOT a session.
+assert.ok(readyHtml.includes('href="/courses/c-ready"'), 'READY card links to the course page');
+assert.ok(readyHtml.includes('Start course'), 'primary CTA reads "Start course"');
+assert.ok(!readyHtml.includes('/session?courseId='), 'READY card does not link straight to a session');
+assert.ok(!readyHtml.includes('View course'), 'no redundant secondary link');
 assert.ok(!readyHtml.includes('<button'), 'a READY course has no Retry button');
+// No nested anchors (an <a> directly inside another <a>).
+assert.ok(!/<a\b[^>]*>(?:(?!<\/a>)[\s\S])*<a\b/.test(readyHtml), 'no nested anchors');
+// No raw status enum leaks.
+assert.ok(!/READY/.test(readyHtml), 'READY card shows no raw status enum');
 
 console.log('CourseCard.test.tsx OK');

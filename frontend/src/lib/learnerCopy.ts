@@ -79,3 +79,76 @@ export function courseStatusLabel(status?: string | null): CourseStatusView {
 export function isCoursePending(status?: string | null): boolean {
   return courseStatusLabel(status).generating;
 }
+
+/** Primary learning CTA copy: invite into a new course vs. resume one in progress. */
+export function primaryCtaLabel(started: boolean): string {
+  return started ? 'Continue learning' : 'Start learning';
+}
+
+// Course card CTA: a READY card opens the course hub (the learning path), it
+// does NOT jump straight into a session.
+export const START_COURSE_LABEL = 'Start course';
+
+// Intro for a chapter's outcome bullets (rendered from the generated
+// learning_objectives), so chapters read as "what you'll be able to do" rather
+// than a generic "this chapter introduces…" summary.
+export const CHAPTER_OUTCOMES_INTRO = "By the end, you'll be able to:";
+
+// Above-the-fold hero for the course page. Before starting, the page introduces
+// the chapters as the recommended path; once started, it's a resume point.
+export type CourseHero = { title: string; subtitle: string; ctaLabel: string };
+
+export function courseHero(input: { started: boolean; hasChapters: boolean }): CourseHero {
+  if (input.started) {
+    return {
+      title: 'Continue learning',
+      subtitle: 'Pick up where you left off — Curriq will coach you through what’s next.',
+      ctaLabel: 'Continue learning',
+    };
+  }
+  return {
+    title: 'Your learning path is ready',
+    subtitle: input.hasChapters
+      ? 'The chapters below are your recommended path. Curriq will coach you through them, one step at a time.'
+      : 'Curriq will coach you through this course, one step at a time.',
+    ctaLabel: 'Start learning',
+  };
+}
+
+// Copy for an empty session (no current task). Three distinct cases so a
+// brand-new course never reads as "nothing is due":
+//  - complete:  finished a queue this session (returning learner).
+//  - preparing: a course-scoped session with nothing yet — quizzes may still be
+//               generating; offer a way back to the course.
+//  - caught-up: an all-courses session with genuinely nothing due.
+export type SessionEmptyState =
+  | { kind: 'complete'; title: string; body: string }
+  | { kind: 'preparing'; title: string; body: string; backHref: string }
+  | { kind: 'caught-up'; title: string; body: string };
+
+export function sessionEmptyState(input: {
+  reviewed: number;
+  scopeCourseId?: string | null;
+}): SessionEmptyState {
+  if (input.reviewed > 0) {
+    const n = input.reviewed;
+    return {
+      kind: 'complete',
+      title: 'Session complete 🎉',
+      body: `You reviewed ${n} item${n === 1 ? '' : 's'}.`,
+    };
+  }
+  if (input.scopeCourseId) {
+    return {
+      kind: 'preparing',
+      title: 'Setting up your session 🛠️',
+      body: 'Your course is still getting ready. New questions appear here as they finish generating — give it a moment, then reload.',
+      backHref: `/courses/${input.scopeCourseId}`,
+    };
+  }
+  return {
+    kind: 'caught-up',
+    title: 'All caught up 🎉',
+    body: 'Nothing is due right now. Check back later.',
+  };
+}

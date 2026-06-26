@@ -7,7 +7,12 @@ import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { extractKeyTerms, titleTerms } from '@/lib/highlightTerms';
 import { courseIdentity } from '@/lib/courseIdentity';
-import { learningProgressView, chapterStatusLabel } from '@/lib/learnerCopy';
+import {
+  learningProgressView,
+  chapterStatusLabel,
+  courseHero,
+  CHAPTER_OUTCOMES_INTRO,
+} from '@/lib/learnerCopy';
 import { sessionHref } from '@/lib/sessionScope';
 
 export default function CoursePage({
@@ -160,6 +165,14 @@ export default function CoursePage({
     );
   }
 
+  // One source of truth for "has the learner started this course?". Drives the
+  // hero copy and whether the empty progress/metrics blocks are shown at all.
+  const progressView = learningProgressView({
+    pct: retention?.learningProgress ?? progress?.completionPercent ?? 0,
+    answered: progress?.answeredQuestions ?? 0,
+  });
+  const started = progressView.started;
+
   // Highlight terms are derived from visible text + existing metadata (no AI).
   // Course-title words are deprioritized so the broad course name doesn't
   // dominate; focus-area concepts are always eligible.
@@ -192,26 +205,47 @@ export default function CoursePage({
           );
         })()}
 
-        {(progress || retention) && (() => {
-          const view = learningProgressView({
-            pct: retention?.learningProgress ?? progress?.completionPercent ?? 0,
-            answered: progress?.answeredQuestions ?? 0,
-          });
+        {/* Above the fold: introduce the learning path (new) or resume it (started). */}
+        {(() => {
+          const hasChapters = (course.outline.chapters?.length ?? 0) > 0;
+          const hero = courseHero({ started, hasChapters });
           return (
-            <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
+            <div className="space-y-3">
               <div>
-                <div className="text-sm text-gray-400">Learning progress</div>
-                <div className="text-2xl font-semibold">{view.headline}</div>
+                <h2 className="text-2xl font-semibold">{hero.title}</h2>
+                <p className="mt-1 text-sm text-gray-400">{hero.subtitle}</p>
               </div>
-              <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
-                <div className="h-full bg-blue-500" style={{ width: `${view.pct}%` }} />
-              </div>
-              <div className="text-sm text-gray-400">{view.status}</div>
+              {started && (
+                <p className="text-sm text-gray-300">
+                  {progressView.headline} · {progressView.status}
+                </p>
+              )}
+              <button
+                className="rounded-lg bg-white text-black px-5 py-3 font-medium"
+                onClick={handleContinue}
+              >
+                {hero.ctaLabel}
+              </button>
             </div>
           );
         })()}
 
-        {(course.metadata?.targetDate || retention || cardsDue) && (
+        {/* Progress + metrics only matter once the learner has started — a
+            brand-new course shows the path instead of empty analytics. */}
+        {started && (progress || retention) && (
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
+            <div>
+              <div className="text-sm text-gray-400">Learning progress</div>
+              <div className="text-2xl font-semibold">{progressView.headline}</div>
+            </div>
+            <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+              <div className="h-full bg-blue-500" style={{ width: `${progressView.pct}%` }} />
+            </div>
+            <div className="text-sm text-gray-400">{progressView.status}</div>
+          </div>
+        )}
+
+        {started && (course.metadata?.targetDate || retention || cardsDue) && (
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 grid grid-cols-2 gap-4 sm:grid-cols-5 text-sm">
             {cardsDue != null && cardsDue > 0 && (
               <div>
@@ -380,18 +414,18 @@ export default function CoursePage({
           </div>
         )}
 
-        <button
-          className="rounded-lg bg-white text-black px-5 py-3 font-medium"
-          onClick={handleContinue}
-        >
-          Continue learning
-        </button>
-
         <div className="space-y-4">
-          {course.outline.chapters.map((chapter: any) => {
+          {(() => {
+          // The first not-yet-completed chapter is the learner's "start here".
+          const firstIncompleteIndex = course.outline.chapters.findIndex((ch: any) => {
+            const cp = progress?.chapters?.find((p: any) => p.chapterId === ch.id);
+            return (cp?.status ?? 'NOT_STARTED') !== 'COMPLETED';
+          });
+          return course.outline.chapters.map((chapter: any, i: number) => {
             const chapterProgress = progress?.chapters?.find(
               (p: any) => p.chapterId === chapter.id,
             );
+            const isStartHere = i === firstIncompleteIndex;
 
             const quiz = quizStatus[chapter.id];
             const quizState = quiz?.status ?? 'NOT_STARTED';
@@ -416,24 +450,45 @@ export default function CoursePage({
                 className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <h2 className="text-xl font-semibold">{chapter.title}</h2>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500">
+                      <span>Chapter {i + 1}</span>
+                      {isStartHere && (
+                        <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-medium text-white">
+                          Start here
+                        </span>
+                      )}
+                    </div>
+                    <h2 className="text-xl font-semibold">{chapter.title}</h2>
+                  </div>
                   {badge && (
                     <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badge.cls}`}>
                       {badge.text}
                     </span>
                   )}
                 </div>
-                <ScannableText
-                  text={chapter.summary}
-                  keyTerms={extractKeyTerms({
-                    text: chapter.summary,
-                    emphasize: titleTerms(chapter.title),
-                    explicit: focusRawConcepts,
-                    deprioritize: courseTitleWords,
-                  })}
-                  clampChars={280}
-                  className="text-gray-300"
-                />
+                {chapter.learning_objectives?.length ? (
+                  <div className="space-y-1">
+                    <div className="text-sm text-gray-400">{CHAPTER_OUTCOMES_INTRO}</div>
+                    <ul className="list-disc pl-5 text-sm text-gray-300 space-y-0.5">
+                      {chapter.learning_objectives.map((obj: string, oi: number) => (
+                        <li key={oi}>{obj}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <ScannableText
+                    text={chapter.summary}
+                    keyTerms={extractKeyTerms({
+                      text: chapter.summary,
+                      emphasize: titleTerms(chapter.title),
+                      explicit: focusRawConcepts,
+                      deprioritize: courseTitleWords,
+                    })}
+                    clampChars={280}
+                    className="text-gray-300"
+                  />
+                )}
 
                 {chapterProgress && (
                   <div className="space-y-2">
@@ -461,7 +516,9 @@ export default function CoursePage({
                   </div>
                 )}
 
-                {quizState === 'READY' && (
+                {/* All chapter CTAs route to the same scoped session, so only
+                    the "Start here" chapter shows the prominent entry button. */}
+                {quizState === 'READY' && isStartHere && (
                   <a
                     href={sessionHref(courseId)}
                     className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
@@ -498,7 +555,8 @@ export default function CoursePage({
                 )}
               </div>
             );
-          })}
+          });
+          })()}
         </div>
       </div>
     </main>

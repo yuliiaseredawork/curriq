@@ -8,7 +8,7 @@ import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
 import { McqChoices } from '@/components/McqChoices';
 import { extractKeyTerms } from '@/lib/highlightTerms';
-import { sessionProgressLabel } from '@/lib/learnerCopy';
+import { sessionProgressLabel, sessionEmptyState } from '@/lib/learnerCopy';
 import { parseSessionScope } from '@/lib/sessionScope';
 
 function SessionInner() {
@@ -136,19 +136,25 @@ function SessionInner() {
   if (loading) return <Shell><p className="text-gray-300">Loading your session…</p></Shell>;
   if (error) return <Shell><div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">{error}</div></Shell>;
 
-  // Session complete (no tasks at all, or worked through the queue).
+  // Empty session (no current task): distinguish completion vs. a still-
+  // preparing new course vs. genuinely nothing due.
   if (!task) {
+    const empty = sessionEmptyState({ reviewed, scopeCourseId });
+    const preparing = empty.kind === 'preparing';
     return (
       <Shell>
-        <div className="rounded-xl border border-green-700 bg-green-950 p-6">
-          <div className="text-2xl font-bold">
-            {reviewed > 0 ? 'Session complete 🎉' : 'All caught up 🎉'}
-          </div>
-          <p className="text-gray-200 mt-1">
-            {reviewed > 0
-              ? `You reviewed ${reviewed} item${reviewed === 1 ? '' : 's'}.`
-              : 'Nothing is due right now. Check back later.'}
-          </p>
+        <div
+          className={`rounded-xl border p-6 space-y-2 ${
+            preparing ? 'border-blue-800 bg-blue-950/40' : 'border-green-700 bg-green-950'
+          }`}
+        >
+          <div className="text-2xl font-bold">{empty.title}</div>
+          <p className="text-gray-200">{empty.body}</p>
+          {empty.kind === 'preparing' && (
+            <a href={empty.backHref} className="inline-block text-blue-300">
+              ← Back to course
+            </a>
+          )}
         </div>
       </Shell>
     );

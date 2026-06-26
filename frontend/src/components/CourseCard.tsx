@@ -1,5 +1,5 @@
 import { courseIdentity } from '@/lib/courseIdentity';
-import { courseStatusLabel } from '@/lib/learnerCopy';
+import { courseStatusLabel, START_COURSE_LABEL } from '@/lib/learnerCopy';
 
 // One row in "My Courses":
 //  - FAILED  → non-link card with a plain-language reason + Retry.
@@ -88,7 +88,8 @@ export function CourseCard({
     );
   }
 
-  // READY
+  // READY — open the course hub (the learning path). The session is started
+  // from there, so the card has one clear action.
   return (
     <a
       href={`/courses/${course.courseId}`}
@@ -96,7 +97,7 @@ export function CourseCard({
     >
       {header(null)}
       <span className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white">
-        Start learning
+        {START_COURSE_LABEL}
       </span>
     </a>
   );

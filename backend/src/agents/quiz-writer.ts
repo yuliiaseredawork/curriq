@@ -112,6 +112,17 @@ Classify each question with "question_kind". Target this distribution:
 - comparison: ~10% (at least 1 compare/contrast or synthesis question when the material supports it)
 </question_mix>
 
+<first_question>
+The FIRST question sets the learning impression — make it strong.
+- The first question MUST be conceptual, scenario-based, trade-off-based, or
+  misconception-based. Do NOT make it a pure definition/recall question (e.g.
+  "what does X mean?") unless the source material is purely definitional.
+- For interview-prep, system-design, or technical content, open with a
+  trade-off, misconception, or application question.
+- Definitions belong inside explanations or in a later easy question — never as
+  the very first question.
+</first_question>
+
 <question_style>
 STRONGLY PREFER questions that test:
 - conceptual understanding ("which statement best explains why...")
@@ -225,17 +236,40 @@ function questionIssues(q: Question): string[] {
   return issues;
 }
 
-// Trivia patterns that are recall regardless of how the model labels them.
+// Trivia / definition patterns that are recall regardless of how the model
+// labels them. Definition patterns are kept TIGHT so conceptual "what is the
+// consequence when…" questions are not misclassified as recall.
 const TRIVIA_PATTERNS = [
   /what does .+ stand for/i,
   /\bin what year\b/i,
   /which year\b/i,
   /formerly (known as|called)/i,
   /(was|is) .+ (called|named) (before|previously)/i,
+  // Pure definition shapes.
+  /what does .+\bmean\b/i,
+  /^\s*define\b/i,
+  /what is the definition of\b/i,
+  /what is meant by\b/i,
 ];
 
-function isRecall(q: Question): boolean {
+export function isRecall(q: Question): boolean {
   return q.question_kind === 'recall' || TRIVIA_PATTERNS.some((p) => p.test(q.question));
+}
+
+/**
+ * Ensure the first question is a strong learning impression: if it's a
+ * recall/definition question and a later non-recall question exists, move the
+ * first non-recall question to index 0 (rest stays stable). No-op if all
+ * questions are recall or the first is already non-recall. Pure — only reorders.
+ */
+export function leadWithNonRecall(questions: Question[]): Question[] {
+  if (questions.length === 0 || !isRecall(questions[0])) return questions;
+  const idx = questions.findIndex((q) => !isRecall(q));
+  if (idx <= 0) return questions; // none, or already at front
+  const reordered = [...questions];
+  const [lead] = reordered.splice(idx, 1);
+  reordered.unshift(lead);
+  return reordered;
 }
 
 /**
@@ -257,13 +291,21 @@ function reviewQuiz(quiz: Quiz): { cleaned: Question[]; problems: string[] } {
   // Cap simple recall at one (drop the extra trivial questions), counting
   // mislabeled trivia (e.g. acronym-expansion, naming history) as recall.
   const recall = valid.filter(isRecall);
+  let kept = valid;
   if (recall.length > 1) {
     problems.push(`${recall.length} recall questions (max 1) — trimming extras`);
     const drop = new Set(recall.slice(1).map((q) => q.id));
-    return { cleaned: valid.filter((q) => !drop.has(q.id)), problems };
+    kept = valid.filter((q) => !drop.has(q.id));
   }
 
-  return { cleaned: valid, problems };
+  // First impression: never open on a definition/recall when a better question
+  // exists. Reorder only — the saved schema/shape is unchanged.
+  const cleaned = leadWithNonRecall(kept);
+  if (cleaned[0] !== kept[0]) {
+    problems.push('reordered: leading recall/definition demoted below a conceptual question');
+  }
+
+  return { cleaned, problems };
 }
 
 export async function generateQuiz(input: {

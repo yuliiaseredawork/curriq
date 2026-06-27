@@ -8,7 +8,15 @@ import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
 import { McqChoices } from '@/components/McqChoices';
 import { extractKeyTerms } from '@/lib/highlightTerms';
-import { sessionProgressLabel, sessionEmptyState } from '@/lib/learnerCopy';
+import {
+  sessionProgressLabel,
+  sessionEmptyState,
+  questionHeading,
+  questionEyebrow,
+  questionFocus,
+  taskContextLine,
+  flashcardRatedLine,
+} from '@/lib/learnerCopy';
 import { parseSessionScope } from '@/lib/sessionScope';
 
 function SessionInner() {
@@ -217,10 +225,7 @@ function SessionInner() {
           </button>
         ) : rated ? (
           <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3 text-center">
-            <p className="text-gray-300">
-              Rated <span className="font-semibold">{rated.rating}</span> · next review in {rated.intervalDays} day
-              {rated.intervalDays === 1 ? '' : 's'}
-            </p>
+            <p className="text-gray-300">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
             <button className="rounded-lg bg-blue-500 px-5 py-3 text-white" onClick={advance}>
               {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
             </button>
@@ -234,19 +239,21 @@ function SessionInner() {
 
   function renderQuestion() {
     const q = task.question;
-    const title = task.kind === 'review' ? task.conceptTitle : 'Quiz question';
+    const context = taskContextLine(task);
+    const focus = questionFocus(task);
     return (
       <>
         <div>
-          <div className="text-sm text-blue-300">{task.kind === 'review' ? 'Concept review' : 'New question'}</div>
-          {title && <h1 className="text-2xl font-bold">{title}</h1>}
+          <div className="text-sm text-blue-300">{questionEyebrow(task)}</div>
+          <h1 className="text-2xl font-bold">{questionHeading(task)}</h1>
+          {context && <p className="mt-1 text-sm text-gray-400">{context}</p>}
         </div>
 
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
-          {(q.difficulty || q.concept_tags?.length) && (
-            <div className="text-sm text-gray-400">
-              {[q.difficulty, q.concept_tags?.join(', ')].filter(Boolean).join(' · ')}
-            </div>
+          {focus && (
+            <span className="inline-block rounded-full border border-gray-700 px-3 py-0.5 text-xs text-gray-400">
+              Focus: {focus}
+            </span>
           )}
           {q.question.length > 180 ? (
             <ScannableText text={q.question} keyTerms={keyTermsForQuestion} className="text-xl font-semibold" />

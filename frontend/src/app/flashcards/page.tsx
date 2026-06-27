@@ -6,6 +6,7 @@ import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
 import { extractKeyTerms } from '@/lib/highlightTerms';
+import { flashcardRatedLine } from '@/lib/learnerCopy';
 
 export default function FlashcardsPage() {
   const { getToken, isLoaded } = useAuth();
@@ -136,9 +137,7 @@ export default function FlashcardsPage() {
         </button>
       ) : rated ? (
         <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3 text-center">
-          <p className="text-gray-300">
-            Rated <span className="font-semibold">{rated.rating}</span> · next review in {rated.intervalDays} day{rated.intervalDays === 1 ? '' : 's'}
-          </p>
+          <p className="text-gray-300">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
           <button className="rounded-lg bg-blue-500 px-5 py-3 text-white" onClick={loadNext}>
             Next card
           </button>

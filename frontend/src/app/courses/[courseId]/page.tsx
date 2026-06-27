@@ -12,6 +12,9 @@ import {
   chapterStatusLabel,
   courseHero,
   CHAPTER_OUTCOMES_INTRO,
+  quizBadge,
+  chapterQuestionsLabel,
+  chapterCtaLabel,
 } from '@/lib/learnerCopy';
 import { sessionHref } from '@/lib/sessionScope';
 
@@ -430,19 +433,15 @@ export default function CoursePage({
             const quiz = quizStatus[chapter.id];
             const quizState = quiz?.status ?? 'NOT_STARTED';
 
-            const buttonLabel =
-              chapterProgress?.status === 'COMPLETED'
-                ? 'Review chapter'
-                : chapterProgress?.status === 'IN_PROGRESS'
-                  ? 'Continue chapter'
-                  : 'Study chapter';
+            const buttonLabel = chapterCtaLabel(chapterProgress?.status);
 
-            const badge = {
-              READY: { text: 'Quiz ready', cls: 'border-green-700 text-green-300' },
-              GENERATING: { text: 'Generating quiz…', cls: 'border-blue-700 text-blue-300' },
-              FAILED: { text: 'Quiz failed', cls: 'border-red-700 text-red-300' },
-              NOT_STARTED: { text: 'Quiz not started', cls: 'border-gray-700 text-gray-400' },
-            }[quizState as 'READY' | 'GENERATING' | 'FAILED' | 'NOT_STARTED'];
+            const badge = quizBadge(quizState, started);
+            const badgeCls =
+              quizState === 'FAILED'
+                ? 'border-red-700 text-red-300'
+                : quizState === 'GENERATING'
+                  ? 'border-blue-700 text-blue-300'
+                  : 'border-gray-700 text-gray-300';
 
             return (
               <div
@@ -451,18 +450,13 @@ export default function CoursePage({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-0.5">
-                    <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500">
-                      <span>Chapter {i + 1}</span>
-                      {isStartHere && (
-                        <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-medium text-white">
-                          Start here
-                        </span>
-                      )}
+                    <div className="text-xs uppercase tracking-wide text-gray-500">
+                      Chapter {i + 1}
                     </div>
                     <h2 className="text-xl font-semibold">{chapter.title}</h2>
                   </div>
                   {badge && (
-                    <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badge.cls}`}>
+                    <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badgeCls}`}>
                       {badge.text}
                     </span>
                   )}
@@ -502,9 +496,11 @@ export default function CoursePage({
                         );
                       })()}
                       <span>
-                        {chapterProgress.totalQuestions > 0
-                          ? `${chapterProgress.answeredQuestions} / ${chapterProgress.totalQuestions} questions`
-                          : 'Quiz not generated yet. Start studying to generate quizzes'}
+                        {chapterQuestionsLabel({
+                          started,
+                          answered: chapterProgress.answeredQuestions,
+                          total: chapterProgress.totalQuestions,
+                        })}
                       </span>
                     </div>
                     <div className="h-2 rounded-full bg-gray-800 overflow-hidden">

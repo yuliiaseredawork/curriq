@@ -94,6 +94,131 @@ export const START_COURSE_LABEL = 'Start course';
 // than a generic "this chapter introduces…" summary.
 export const CHAPTER_OUTCOMES_INTRO = "By the end, you'll be able to:";
 
+// --- Session task presentation (coaching copy, display-only) ----------------
+// A session task is shaped like { kind, reason, conceptTitle?, question? } where
+// question carries { difficulty?, concept_tags? }. These helpers turn that into
+// warm, learner-facing copy without exposing raw difficulty/tag metadata.
+
+type SessionTaskLike = {
+  kind?: string;
+  reason?: string | null;
+  conceptTitle?: string | null;
+  question?: { concept_tags?: string[] | null } | null;
+};
+
+/** Heading for a question task: the concept for reviews, a warm label for new ones. */
+export function questionHeading(task: SessionTaskLike): string {
+  if (task.kind === 'review' && task.conceptTitle) return task.conceptTitle;
+  return 'Check your understanding';
+}
+
+/** Short eyebrow above the heading. */
+export function questionEyebrow(task: SessionTaskLike): string {
+  return task.kind === 'review' ? 'Review' : 'Practice';
+}
+
+/** A single readable focus concept (the first tag), or null if unusable. */
+export function questionFocus(task: SessionTaskLike): string | null {
+  const raw = task.question?.concept_tags?.[0]?.trim();
+  if (!raw || raw.length > 40) return null;
+  // Title-case simple slugs/phrases for display; leave acronyms/casing as-is.
+  return raw
+    .split(/\s+/)
+    .map((w) => (/[A-Z]/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
+// Whitelist: only known, learner-safe planner reasons become coaching copy.
+// Anything else (flashcard/internal/unknown reasons) renders nothing.
+const TASK_CONTEXT_COPY: Record<string, string> = {
+  'At risk of forgetting': "You're starting to forget this — let's lock it in.",
+  'Weak area': "Let's strengthen this weak spot.",
+  'Due before your deadline': 'This helps keep you on track for your deadline.',
+  'Finish the chapter you started': 'Picking up where you left off.',
+};
+
+/** Optional "why this matters" line for a task, or null when not whitelisted. */
+export function taskContextLine(task: SessionTaskLike): string | null {
+  return (task.reason && TASK_CONTEXT_COPY[task.reason]) ?? null;
+}
+
+// --- Course-page chapter labels + flashcard result (display-only) ------------
+
+/**
+ * Calm, learner-facing quiz-readiness badge text (or null to hide). Readiness
+ * is noise before a learner starts, so READY/NOT_STARTED are hidden until then;
+ * preparing/failed always show because the learner needs to know.
+ */
+export function quizBadge(
+  quizState: string | undefined,
+  started: boolean,
+): { text: string } | null {
+  switch (quizState) {
+    case 'GENERATING':
+      return { text: 'Preparing…' };
+    case 'FAILED':
+      return { text: 'Couldn’t prepare practice' };
+    case 'READY':
+      return started ? { text: 'Ready' } : null;
+    default: // NOT_STARTED / unknown
+      return null;
+  }
+}
+
+/** Chapter question count: an inviting "N practice questions" before starting,
+ *  real "answered / total" progress once started. */
+export function chapterQuestionsLabel(input: {
+  started: boolean;
+  answered?: number | null;
+  total?: number | null;
+}): string {
+  const total = input.total ?? 0;
+  if (total <= 0) return 'Questions are being prepared';
+  if (!input.started) return `${total} practice question${total === 1 ? '' : 's'}`;
+  return `${input.answered ?? 0} / ${total} questions`;
+}
+
+/** Chapter CTA label by progress status. "Start here" replaces "Study chapter". */
+export function chapterCtaLabel(chapterStatus?: string | null): string {
+  if (chapterStatus === 'COMPLETED') return 'Review chapter';
+  if (chapterStatus === 'IN_PROGRESS') return 'Continue chapter';
+  return 'Start here';
+}
+
+// --- Home page copy + mode (display-only) -----------------------------------
+export const HOME_HERO_HEADLINE = 'Turn any video or PDF into a guided learning path.';
+export const HOME_VALUE_PROP =
+  'Curriq tells you what to study next, checks your understanding, and brings weak concepts back before you forget them.';
+export const HOME_HERO_STEPS =
+  'Add content → get a learning path → practice with grounded questions → review weak concepts.';
+export const TODAYS_PLAN_LABEL = "Today's learning plan";
+export const CONTINUE_LEARNING_LABEL = 'Continue learning';
+export const YOUR_COURSES_LABEL = 'Your courses';
+export const CREATE_LEARNING_PATH_LABEL = 'Create learning path';
+export const CAUGHT_UP_TITLE = "You're caught up for now.";
+export const CAUGHT_UP_BODY = 'Review a course or add new material when you’re ready.';
+
+/**
+ * Home layout mode. First-run (welcoming hero + creation) only once we know the
+ * learner has zero courses; while loading we assume the returning layout so the
+ * hero never flashes mid-load.
+ */
+export function homeMode(input: { hasCourses: boolean; loadingCourses: boolean }): 'first-run' | 'returning' {
+  if (input.loadingCourses) return 'returning';
+  return input.hasCourses ? 'returning' : 'first-run';
+}
+
+/** Friendly post-rating confirmation, e.g. "Marked as hard · next review tomorrow". */
+export function flashcardRatedLine(rating: string, intervalDays: number): string {
+  const when =
+    intervalDays <= 0
+      ? 'later today'
+      : intervalDays === 1
+        ? 'tomorrow'
+        : `in ${intervalDays} days`;
+  return `Marked as ${String(rating).toLowerCase()} · next review ${when}`;
+}
+
 // Above-the-fold hero for the course page. Before starting, the page introduces
 // the chapters as the recommended path; once started, it's a resume point.
 export type CourseHero = { title: string; subtitle: string; ctaLabel: string };

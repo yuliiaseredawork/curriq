@@ -27,17 +27,21 @@ export type GeneratedCard = z.infer<typeof CardSchema>;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-const SYSTEM = `
-You are an expert tutor writing active-recall flashcards.
+export const SYSTEM = `
+You are an expert tutor writing high-quality active-recall flashcards for
+spaced repetition. A great card is ATOMIC (tests one thing), specific, and fast
+to answer (10–20 seconds).
 
 Return ONLY valid JSON. No markdown, no text outside JSON.
 
 Every card must be grounded in the provided chunks and include sourceChunkIds.
-Prefer cards that target the learner's observed mistakes. Do NOT make trivial
-cards from obvious words. Keep "front" concise; keep "back" concise but complete.
+Prefer cards that target the learner's observed mistakes. Never make trivial
+cards from obvious words. The "front" is ONE clear recall target; the "back" is
+short and structured, not an essay. Put any verbatim source text in
+"sourceQuote", never in the main answer.
 `;
 
-function buildPrompt(input: {
+export function buildPrompt(input: {
   concept: string;
   chunks: Array<{ id: string | number; video_id?: string; text: string }>;
   mistakes?: string[];
@@ -54,20 +58,61 @@ Write ${input.count} active-recall flashcards for the concept: ${input.concept}
 </task>
 
 ${mistakes ? `<observed_mistakes>\n${mistakes}\n</observed_mistakes>\n` : ''}
+<atomicity>
+- One card tests ONE thing. A learner should answer it in 10–20 seconds.
+- Never combine multiple ideas, and never ask more than one question, in a card.
+</atomicity>
+
+<front>
+- Short, concrete, and answerable from memory — ONE question only.
+- Prefer prompts like: "What should you do next?", "What is the trap?",
+  "Why is this reasoning flawed?", "Which trade-off matters here?".
+- BAN vague fronts with no clear recall target: "What is the likely
+  consequence?", "Explain this topic.", "What should you know about X?",
+  "Describe X.".
+</front>
+
+<back>
+- Concise and STRUCTURED. Use short labeled lines, each on its own line:
+    Answer: one concise sentence — the recall target.
+    Why it matters: one short sentence of reasoning (optional).
+    Watch out: the common trap or misconception (optional).
+- No long paragraphs. Do NOT paste source text into the back — use sourceQuote.
+</back>
+
 <card_types>
 Use a MIX of these types where the material supports them:
-- definition: front "What does X mean?" / back concise answer
-- cloze: front a sentence with {{blank}} / back the missing words
-- scenario: front a "what happens if…" situation / back the explanation
-- misconception: front a true/false or common wrong belief / back the correction
-- comparison: front "A vs B: when prefer each?" / back the explanation
+- scenario: front a "you're doing X — what next?" situation / structured back
+- misconception: front a common wrong belief / back the correction (+ set misconceptionTarget)
+- comparison: front "A vs B: which fits here and why?" / back the trade-off
+- cloze: front a sentence with {{blank}} (blanks belong ONLY in the front) / back the missing words
+- definition: only when a term is genuinely load-bearing — not trivia
 </card_types>
 
+<interview_prep>
+- For system design, interview prep, or technical content, PREFER scenario,
+  misconception, and comparison cards that improve real performance.
+- Avoid trivial definition/acronym cards.
+</interview_prep>
+
+<examples>
+GOOD front: "You're 10 minutes into a 45-minute system design interview and
+still refining requirements. What should you do next?"
+GOOD back:
+"Answer: Move on to the design — cap requirements at about five minutes.
+Why it matters: It leaves time for architecture, scaling, and trade-offs.
+Watch out: Being thorough on requirements is not the same as showing design depth."
+
+BAD front: "What is the likely consequence?"  (vague — no clear recall target)
+BAD back: one long paragraph restating a transcript sentence with a quote pasted in.
+</examples>
+
 <rules>
-- 3-5 cards. Ground every card in the chunks; set sourceChunkIds (chunk ids used).
+- ${input.count} cards. Ground every card in the chunks; set sourceChunkIds.
 - Prefer cards addressing the observed mistakes.
-- Front concise; back concise but complete. Active recall, not trivia.
+- Keep each card atomic: front is one clear question; back is short and structured.
 - For misconception cards set misconceptionTarget (the confusion corrected).
+- Put any verbatim source snippet in sourceQuote, never in the back.
 </rules>
 
 <output_schema>
@@ -92,6 +137,76 @@ ${chunksText}
 `;
 }
 
+// --- Soft quality bar (style only — never fails generation) ------------------
+// Pure detectors mirroring the outliner's approach: surface low-quality cards so
+// the generator can self-correct ONCE, but never throw or fail a course over
+// style. A card is judged on its own fields.
+
+// Vague fronts with no clear recall target (the symptom this task fixes).
+const VAGUE_FRONT_RE: RegExp[] = [
+  /what is the likely consequence/i,
+  /^\s*explain\b/i,
+  /^\s*describe\b/i,
+  /^\s*discuss\b/i,
+  /what should you know about\b/i,
+  /^\s*what is the (impact|result|effect)\b.{0,40}\??\s*$/i,
+];
+
+const FRONT_MAX = 200; // chars — a front is a quick prompt, not a paragraph
+const BACK_MAX = 320; // chars — a back is concise, not an essay
+const BLANK_RE = /\{\{\s*[^{}]*\}\}/;
+
+/**
+ * Soft quality issues for one generated card. Empty array = passes. Detects
+ * vague fronts, overlong front/back, multiple questions in one front, a source
+ * quote that dominates the answer, and leaked cloze placeholders.
+ */
+export function flashcardQualityIssues(card: {
+  type: string;
+  front: string;
+  back: string;
+  sourceQuote?: string;
+}): string[] {
+  const issues: string[] = [];
+  const front = (card.front ?? '').trim();
+  const back = (card.back ?? '').trim();
+
+  if (VAGUE_FRONT_RE.some((re) => re.test(front))) issues.push(`vague front: "${front}"`);
+  if (front.length > FRONT_MAX) issues.push(`front too long (${front.length} chars)`);
+  if (back.length > BACK_MAX) issues.push(`back too long (${back.length} chars)`);
+  // More than one "?" in the front signals two questions crammed into one card.
+  if ((front.match(/\?/g) ?? []).length > 1) issues.push('front asks more than one question');
+
+  // A source quote belongs in sourceQuote; if it's pasted in and dominates the
+  // back, the "answer" is really just a transcript snippet.
+  const quote = (card.sourceQuote ?? '').trim();
+  if (quote && back.includes(quote) && quote.length >= back.length * 0.5) {
+    issues.push('source quote dominates the answer');
+  }
+
+  // Cloze blanks belong only in a cloze FRONT — never in the back, never in a
+  // non-cloze front.
+  if (BLANK_RE.test(back)) issues.push('raw {{blank}} placeholder leaked into the back');
+  if (card.type !== 'cloze' && BLANK_RE.test(front)) {
+    issues.push('unexpected {{blank}} in a non-cloze front');
+  }
+
+  return issues;
+}
+
+/** Corrective note appended to a single retry when cards have soft issues. */
+export function flashcardCorrectiveFeedback(issues: string[]): string {
+  return [
+    'Your previous flashcards had quality problems. Fix them and regenerate:',
+    ...issues.map((i) => `- ${i}`),
+    '',
+    'Make every front ONE short, concrete recall target (no vague "what is the',
+    'likely consequence?"). Keep each back concise and structured (Answer / Why',
+    'it matters / Watch out), not a paragraph. Put any verbatim source text in',
+    'sourceQuote, and keep {{blank}} only in a cloze front.',
+  ].join('\n');
+}
+
 export async function generateFlashcards(input: {
   concept: string;
   chunks: Array<{ id: string | number; video_id?: string; text: string }>;
@@ -99,23 +214,64 @@ export async function generateFlashcards(input: {
   count?: number;
 }): Promise<GeneratedCard[]> {
   const count = input.count ?? 4;
+  // Soft quality issues trigger at most ONE corrective regeneration; parse/
+  // schema failures keep their own retries. We never fail over style.
+  let correctiveNote: string | null = null;
+  let corrected = false;
+  let best: GeneratedCard[] | null = null;
+
   for (let attempt = 0; attempt < 3; attempt++) {
+    const userContent = correctiveNote
+      ? `${buildPrompt({ ...input, count })}\n\n<corrections>\n${correctiveNote}\n</corrections>`
+      : buildPrompt({ ...input, count });
+
     const res = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2500,
       temperature: 0.3,
       system: SYSTEM,
-      messages: [{ role: 'user', content: buildPrompt({ ...input, count }) }],
+      messages: [{ role: 'user', content: userContent }],
     });
     const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start === -1 || end === -1) continue;
+
+    let cards: GeneratedCard[];
     try {
-      return CardsSchema.parse(JSON.parse(text.slice(start, end + 1))).cards;
+      cards = CardsSchema.parse(JSON.parse(text.slice(start, end + 1))).cards;
     } catch {
-      // retry
+      continue; // invalid shape — parse/schema retry (unchanged)
     }
+
+    const issues = cards.flatMap((c, i) =>
+      flashcardQualityIssues(c).map((x) => `card ${i + 1}: ${x}`),
+    );
+
+    // First time we see soft issues: regenerate ONCE with corrective feedback.
+    if (issues.length && !corrected) {
+      console.warn('[flashcard-writer] soft quality issues — one corrective retry', {
+        count: issues.length,
+        issues,
+      });
+      best = cards; // fallback if the corrective attempt is worse/unparseable
+      correctiveNote = flashcardCorrectiveFeedback(issues);
+      corrected = true;
+      continue;
+    }
+
+    if (issues.length) {
+      console.warn('[flashcard-writer] soft quality issues remain after corrective retry (accepting)', {
+        count: issues.length,
+        issues,
+      });
+    }
+    return cards;
   }
+
+  // Corrective retry happened but later attempts failed to parse — accept the
+  // earlier valid cards rather than failing over style.
+  if (best) return best;
+
   throw new Error('Failed to generate valid flashcards');
 }

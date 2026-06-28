@@ -80,5 +80,26 @@ assert.ok(!readyHtml.includes('<button'), 'a READY course has no Retry button');
 assert.ok(!/<a\b[^>]*>(?:(?!<\/a>)[\s\S])*<a\b/.test(readyHtml), 'no nested anchors');
 // No raw status enum leaks.
 assert.ok(!/READY/.test(readyHtml), 'READY card shows no raw status enum');
+// PDF card shows the clean source label + file name.
+assert.ok(readyHtml.includes('PDF'), 'PDF card shows the source label');
+assert.ok(readyHtml.includes('notes.pdf'), 'PDF card keeps the file name');
+
+// --- YouTube card shows the label, never a raw URL --------------------------
+const ytHtml = renderToStaticMarkup(
+  createElement(CourseCard, {
+    course: {
+      courseId: 'c-yt',
+      title: 'Kafka Deep Dive',
+      status: 'READY',
+      sourceType: 'YOUTUBE_PLAYLIST',
+      sourceUrl: 'https://youtube.com/playlist?list=PL123',
+      playlistUrl: 'https://youtube.com/playlist?list=PL123',
+    },
+    onRetry: noop,
+  }),
+);
+assert.ok(ytHtml.includes('YouTube playlist'), 'YouTube card shows the clean label');
+assert.ok(!/https?:\/\//.test(ytHtml), 'YouTube card shows no raw URL');
+assert.ok(!/youtube\.com/.test(ytHtml), 'YouTube card does not leak the raw youtube.com URL');
 
 console.log('CourseCard.test.tsx OK');

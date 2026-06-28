@@ -19,10 +19,29 @@ import {
   quizBadge,
   chapterQuestionsLabel,
   chapterCtaLabel,
+  DEFAULT_VISIBLE_OBJECTIVES,
+  DEFAULT_VISIBLE_FOCUS_AREAS,
+  showMoreLabel,
+  detailsToggleLabel,
+  focusListToggleLabel,
+  SHOW_MORE_FOCUS_LABEL,
   flashcardRatedLine,
+  flashcardBackSections,
+  FLASHCARD_RATING_PROMPT,
+  SOURCE_NOTE_LABEL,
+  ANSWER_LABEL,
+  WHY_LABEL,
+  WATCH_OUT_LABEL,
   renderClozeText,
   FOCUS_EYEBROW,
   FOCUS_CONTEXT,
+  primaryButtonClass,
+  secondaryButtonClass,
+  stayOnTrackLine,
+  METRIC_REMEMBERED_LABEL,
+  METRIC_SOLID_LEARNING_LABEL,
+  METRIC_NEEDS_LOOK_LABEL,
+  METRIC_READY_TO_REVIEW_LABEL,
   homeMode,
   HOME_HERO_HEADLINE,
   HOME_VALUE_PROP,
@@ -191,9 +210,89 @@ assert.strictEqual(renderClozeText('no placeholder here'), 'no placeholder here'
 assert.strictEqual(renderClozeText(''), '');
 assert.strictEqual(renderClozeText(null), '');
 
+// --- Flashcard back presentation + rating prompt ----------------------------
+assert.strictEqual(FLASHCARD_RATING_PROMPT, 'How well did you remember this?');
+assert.strictEqual(SOURCE_NOTE_LABEL, 'Source note');
+assert.strictEqual(ANSWER_LABEL, 'Answer');
+assert.strictEqual(WHY_LABEL, 'Why it matters');
+assert.strictEqual(WATCH_OUT_LABEL, 'Watch out');
+
+// Old freeform card (no labels) → one unlabeled block, full text preserved.
+const free = flashcardBackSections(
+  'Two groups each keep independent offsets and read all partitions; one group splits them.',
+);
+assert.strictEqual(free.length, 1, 'freeform back stays a single block');
+assert.strictEqual(free[0].label, null);
+assert.ok(free[0].body.startsWith('Two groups'), 'freeform body is preserved verbatim');
+
+// Structured card → labeled sections, in order, with bodies stripped of labels.
+const structured = flashcardBackSections(
+  'Answer: Move on to the design — cap requirements at five minutes.\nWhy it matters: It leaves time for architecture and trade-offs.\nWatch out: Thoroughness is not the same as design depth.',
+);
+assert.deepStrictEqual(
+  structured.map((s) => s.label),
+  [ANSWER_LABEL, WHY_LABEL, WATCH_OUT_LABEL],
+  'recognizes Answer / Why it matters / Watch out labels',
+);
+assert.strictEqual(structured[0].body, 'Move on to the design — cap requirements at five minutes.');
+assert.ok(structured.some((s) => s.label === WATCH_OUT_LABEL), 'exposes a Watch out section');
+
+// Mixed: an unlabeled answer paragraph followed by a Watch out line (the good
+// example shape) → unlabeled block + a labeled trap.
+const mixed = flashcardBackSections(
+  'Move on to the design and cap requirements at five minutes.\nWatch out: Being thorough is not showing design depth.',
+);
+assert.strictEqual(mixed.length, 2);
+assert.strictEqual(mixed[0].label, null);
+assert.strictEqual(mixed[1].label, WATCH_OUT_LABEL);
+
+// Prose that merely starts with "Why" is NOT mistaken for a label (needs colon).
+const prose = flashcardBackSections('Why this works is that offsets are tracked per partition.');
+assert.strictEqual(prose.length, 1);
+assert.strictEqual(prose[0].label, null, 'leading "Why …" without a colon is not a label');
+
+// Unknown labels (e.g. "Note:") are left as plain text, never dropped.
+const note = flashcardBackSections('Note: brokers persist data to disk.');
+assert.strictEqual(note[0].label, null);
+assert.ok(note[0].body.includes('Note: brokers persist'), 'unknown label kept as text, not lost');
+
+// Empty / nullish → no sections (callers render nothing).
+assert.deepStrictEqual(flashcardBackSections(''), []);
+assert.deepStrictEqual(flashcardBackSections(null), []);
+assert.deepStrictEqual(flashcardBackSections(undefined), []);
+
+// The rating prompt carries no internal/rating-enum vocabulary.
+for (const tok of ['AGAIN', 'HARD', 'GOOD', 'EASY', 'SM-2', 'quality']) {
+  assert.ok(!FLASHCARD_RATING_PROMPT.includes(tok), `rating prompt leaks "${tok}"`);
+}
+
 // --- Focus practice copy ----------------------------------------------------
 assert.strictEqual(FOCUS_EYEBROW, 'Focus practice');
 assert.strictEqual(FOCUS_CONTEXT, 'Strengthen this weak spot');
+
+// --- Shared button styles + metric labels (polish) --------------------------
+assert.ok(/bg-blue-500/.test(primaryButtonClass), 'primary button is blue');
+assert.ok(/disabled:opacity-50/.test(primaryButtonClass), 'primary preserves disabled state');
+assert.ok(!/px-\d/.test(primaryButtonClass), 'primary class leaves padding to call sites');
+assert.ok(/border/.test(secondaryButtonClass), 'secondary button is bordered/quiet');
+
+assert.strictEqual(METRIC_REMEMBERED_LABEL, 'Remembered');
+assert.strictEqual(METRIC_SOLID_LEARNING_LABEL, 'Solid / Still learning');
+assert.strictEqual(METRIC_NEEDS_LOOK_LABEL, 'Needs another look');
+assert.strictEqual(METRIC_READY_TO_REVIEW_LABEL, 'Ready to review');
+assert.strictEqual(stayOnTrackLine(3), '~3 a day to stay on track');
+
+// No internal metric vocabulary in the exported learner-facing labels.
+const metricCopy = [
+  METRIC_REMEMBERED_LABEL,
+  METRIC_SOLID_LEARNING_LABEL,
+  METRIC_NEEDS_LOOK_LABEL,
+  METRIC_READY_TO_REVIEW_LABEL,
+  stayOnTrackLine(2),
+].join(' | ');
+for (const bad of ['Retention', 'Forgotten', 'Mastered / Learning', 'Reviews due', 'reviews/day']) {
+  assert.ok(!metricCopy.includes(bad), `metric copy leaks "${bad}"`);
+}
 
 // --- Session question presentation ------------------------------------------
 // Heading: warm label for new questions, concept title for reviews.
@@ -279,6 +378,32 @@ assert.strictEqual(chapterCtaLabel(undefined), 'Start here');
 assert.strictEqual(chapterCtaLabel('NOT_STARTED'), 'Start here');
 assert.strictEqual(chapterCtaLabel('IN_PROGRESS'), 'Continue chapter');
 assert.strictEqual(chapterCtaLabel('COMPLETED'), 'Review chapter');
+
+// --- Progressive disclosure: short cards by default, full depth on demand ----
+// Cards show only the first couple of items, keeping the page scannable.
+assert.strictEqual(DEFAULT_VISIBLE_OBJECTIVES, 2, 'chapter cards show 2 objectives by default');
+assert.strictEqual(DEFAULT_VISIBLE_FOCUS_AREAS, 2, 'focus block shows 2 areas by default');
+// Show more / less toggle copy (coach-like, no internal wording).
+assert.strictEqual(showMoreLabel(false), 'Show more');
+assert.strictEqual(showMoreLabel(true), 'Show less');
+// Subtle details toggle (used to tuck away raw "Covers:" concept lists).
+assert.strictEqual(detailsToggleLabel(false), 'Show details');
+assert.strictEqual(detailsToggleLabel(true), 'Hide details');
+// Focus-list toggle reads as a clear, learner-facing affordance.
+assert.strictEqual(focusListToggleLabel(false), 'Show more focus areas');
+assert.strictEqual(focusListToggleLabel(true), 'Show fewer');
+assert.strictEqual(SHOW_MORE_FOCUS_LABEL, 'Show more focus areas');
+// None of the disclosure copy leaks internal/raw vocabulary.
+for (const s of [
+  showMoreLabel(true),
+  showMoreLabel(false),
+  detailsToggleLabel(true),
+  detailsToggleLabel(false),
+  focusListToggleLabel(true),
+  focusListToggleLabel(false),
+]) {
+  assert.ok(!/Covers:|Mastery|Retention|NOT_STARTED|difficulty/.test(s), `disclosure copy leaks: "${s}"`);
+}
 
 // --- Flashcard post-rating copy: friendly, no raw enum ----------------------
 assert.strictEqual(flashcardRatedLine('HARD', 1), 'Marked as hard · next review tomorrow');

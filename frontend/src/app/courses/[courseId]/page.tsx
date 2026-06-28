@@ -15,6 +15,17 @@ import {
   quizBadge,
   chapterQuestionsLabel,
   chapterCtaLabel,
+  DEFAULT_VISIBLE_OBJECTIVES,
+  DEFAULT_VISIBLE_FOCUS_AREAS,
+  showMoreLabel,
+  detailsToggleLabel,
+  focusListToggleLabel,
+  primaryButtonClass,
+  stayOnTrackLine,
+  METRIC_REMEMBERED_LABEL,
+  METRIC_SOLID_LEARNING_LABEL,
+  METRIC_NEEDS_LOOK_LABEL,
+  METRIC_READY_TO_REVIEW_LABEL,
 } from '@/lib/learnerCopy';
 import { sessionHref } from '@/lib/sessionScope';
 
@@ -43,6 +54,11 @@ export default function CoursePage({
   const [focusPreparing, setFocusPreparing] = useState(false);
   const [showMastered, setShowMastered] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [showMetricDetails, setShowMetricDetails] = useState(false);
+  // Per-card progressive disclosure (keyed by chapter id / concept slug) so each
+  // card expands independently and cards stay short by default.
+  const [expandedObjectives, setExpandedObjectives] = useState<Record<string, boolean>>({});
+  const [expandedCovers, setExpandedCovers] = useState<Record<string, boolean>>({});
   const [quizStatus, setQuizStatus] = useState<Record<string, any>>({});
   const [retention, setRetention] = useState<any>(null);
   const [cardsDue, setCardsDue] = useState<number | null>(null);
@@ -223,10 +239,7 @@ export default function CoursePage({
                   {progressView.headline} · {progressView.status}
                 </p>
               )}
-              <button
-                className="rounded-lg bg-white text-black px-5 py-3 font-medium"
-                onClick={handleContinue}
-              >
+              <button className={`${primaryButtonClass} px-5 py-3`} onClick={handleContinue}>
                 {hero.ctaLabel}
               </button>
             </div>
@@ -249,71 +262,86 @@ export default function CoursePage({
         )}
 
         {started && (course.metadata?.targetDate || retention || cardsDue) && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 grid grid-cols-2 gap-4 sm:grid-cols-5 text-sm">
-            {cardsDue != null && cardsDue > 0 && (
-              <div>
-                <div className="text-xs text-gray-500">Reviews due</div>
-                <a href="/flashcards" className="text-lg font-semibold text-purple-300">{cardsDue}</a>
-              </div>
-            )}
-            {course.metadata?.targetDate && (() => {
-              const target = new Date(course.metadata.targetDate).getTime();
-              const daysLeft = Math.ceil((target - Date.now()) / 86400000);
-              const remaining = retention ? retention.total - retention.mastered : 0;
-              const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
-              // On-track vs an even burn-down (mirrors backend scheduleStatus).
-              let onTrack = true;
-              const created = course.metadata.createdAt
-                ? new Date(course.metadata.createdAt).getTime()
-                : null;
-              if (created && retention && retention.total > 0) {
-                const totalDays = Math.max(1, Math.ceil((target - created) / 86400000));
-                const elapsed = Math.max(0, totalDays - Math.max(0, daysLeft));
-                const expectedMastered = (retention.total * elapsed) / totalDays;
-                onTrack = expectedMastered - retention.mastered <= 0.5;
-              }
-              return (
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-4">
+            {/* Actionable, always visible: what's ready + the deadline. */}
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 text-sm">
+              {cardsDue != null && cardsDue > 0 && (
                 <div>
-                  <div className="text-xs text-gray-500">Deadline</div>
-                  <div className={`text-lg font-semibold ${daysLeft < 0 ? 'text-red-400' : ''}`}>
-                    {daysLeft < 0 ? 'Passed' : `${daysLeft} days`}
-                  </div>
-                  {daysLeft >= 0 && remaining > 0 && (
-                    <div className="text-xs text-gray-500">{perDay} reviews/day</div>
-                  )}
-                  {daysLeft >= 0 && retention && (
-                    <div className={`text-xs ${onTrack ? 'text-green-400' : 'text-yellow-400'}`}>
-                      {onTrack ? 'On track' : 'Behind'}
+                  <div className="text-xs text-gray-500">{METRIC_READY_TO_REVIEW_LABEL}</div>
+                  <a href="/flashcards" className="text-lg font-semibold text-purple-300">{cardsDue}</a>
+                </div>
+              )}
+              {course.metadata?.targetDate && (() => {
+                const target = new Date(course.metadata.targetDate).getTime();
+                const daysLeft = Math.ceil((target - Date.now()) / 86400000);
+                const remaining = retention ? retention.total - retention.mastered : 0;
+                const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
+                // On-track vs an even burn-down (mirrors backend scheduleStatus).
+                let onTrack = true;
+                const created = course.metadata.createdAt
+                  ? new Date(course.metadata.createdAt).getTime()
+                  : null;
+                if (created && retention && retention.total > 0) {
+                  const totalDays = Math.max(1, Math.ceil((target - created) / 86400000));
+                  const elapsed = Math.max(0, totalDays - Math.max(0, daysLeft));
+                  const expectedMastered = (retention.total * elapsed) / totalDays;
+                  onTrack = expectedMastered - retention.mastered <= 0.5;
+                }
+                return (
+                  <div>
+                    <div className="text-xs text-gray-500">Deadline</div>
+                    <div className={`text-lg font-semibold ${daysLeft < 0 ? 'text-red-400' : ''}`}>
+                      {daysLeft < 0 ? 'Passed' : `${daysLeft} days`}
                     </div>
-                  )}
-                </div>
-              );
-            })()}
-            {retention && (
-              <>
-                <div>
-                  <div className="text-xs text-gray-500">Retention</div>
-                  <div className="text-lg font-semibold">{retention.retentionScore}%</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500">Mastered / Learning</div>
-                  <div className="text-lg font-semibold">
-                    {retention.mastered} / {retention.learning}
+                    {daysLeft >= 0 && remaining > 0 && (
+                      <div className="text-xs text-gray-500">{stayOnTrackLine(perDay)}</div>
+                    )}
+                    {daysLeft >= 0 && retention && (
+                      <div className={`text-xs ${onTrack ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {onTrack ? 'On track' : 'Behind'}
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500">Forgotten</div>
-                  <div className="text-lg font-semibold text-yellow-400">{retention.forgotten}</div>
-                </div>
-              </>
+                );
+              })()}
+            </div>
+
+            {/* Analytical metrics tucked behind a quiet disclosure. */}
+            {retention && (
+              <div>
+                <button
+                  className="text-sm text-gray-400 hover:text-gray-200"
+                  onClick={() => setShowMetricDetails((s) => !s)}
+                >
+                  {showMetricDetails ? '▾ Hide details' : '▸ Details'}
+                </button>
+                {showMetricDetails && (
+                  <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 text-sm">
+                    <div>
+                      <div className="text-xs text-gray-500">{METRIC_REMEMBERED_LABEL}</div>
+                      <div className="text-lg font-semibold">{retention.retentionScore}%</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">{METRIC_SOLID_LEARNING_LABEL}</div>
+                      <div className="text-lg font-semibold">
+                        {retention.mastered} / {retention.learning}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">{METRIC_NEEDS_LOOK_LABEL}</div>
+                      <div className="text-lg font-semibold text-gray-200">{retention.forgotten}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
 
         {(focusAreas.length > 0 || focusPreparing) && (
-          <div className="rounded-xl border border-yellow-800 bg-yellow-950/30 p-5 space-y-3">
+          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
             <div>
-              <div className="text-sm text-yellow-300">Focus areas</div>
+              <div className="text-sm text-blue-300">Coach&apos;s pick</div>
               <h2 className="text-xl font-semibold">What to work on next</h2>
             </div>
 
@@ -324,7 +352,7 @@ export default function CoursePage({
             )}
 
             <div className="space-y-3">
-              {(showMore ? focusAreas : focusAreas.slice(0, 5)).map((item) => {
+              {(showMore ? focusAreas : focusAreas.slice(0, DEFAULT_VISIBLE_FOCUS_AREAS)).map((item) => {
                 const inProgress = item.sessionStatus === 'IN_PROGRESS';
                 const trendStr =
                   item.trend > 0 ? `+${item.trend}%` : item.trend < 0 ? `${item.trend}%` : null;
@@ -347,9 +375,9 @@ export default function CoursePage({
                         />
                       )}
                       <div className="text-xs text-gray-500">
-                        Mastery {item.masteryScore}%
+                        {item.masteryScore}% there
                         {trendStr && (
-                          <span className={item.trend >= 0 ? 'text-green-400' : 'text-red-400'}>
+                          <span className={item.trend >= 0 ? 'text-green-400' : 'text-gray-400'}>
                             {' '}· {trendStr} this week
                           </span>
                         )}
@@ -358,16 +386,32 @@ export default function CoursePage({
                         )}
                       </div>
                       <div className="h-1.5 w-40 rounded-full bg-gray-800 overflow-hidden">
-                        <div className="h-full bg-yellow-400" style={{ width: `${item.masteryScore}%` }} />
+                        <div className="h-full bg-blue-500" style={{ width: `${item.masteryScore}%` }} />
                       </div>
                       {item.rawConcepts?.length > 0 && (
-                        <div className="text-xs text-gray-600">
-                          Covers: {item.rawConcepts.join(', ')}
+                        <div className="text-xs">
+                          <button
+                            type="button"
+                            className="text-gray-500 hover:text-gray-300"
+                            onClick={() =>
+                              setExpandedCovers((s) => ({
+                                ...s,
+                                [item.conceptSlug]: !s[item.conceptSlug],
+                              }))
+                            }
+                          >
+                            {detailsToggleLabel(!!expandedCovers[item.conceptSlug])}
+                          </button>
+                          {expandedCovers[item.conceptSlug] && (
+                            <div className="mt-1 text-gray-600">
+                              Covers: {item.rawConcepts.join(', ')}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                     <button
-                      className="shrink-0 rounded-lg bg-yellow-400 px-3 py-2 text-sm font-medium text-black disabled:opacity-50"
+                      className={`${primaryButtonClass} shrink-0 px-3 py-2 text-sm`}
                       onClick={() => handleOpenFocus(item.conceptSlug)}
                       disabled={!item.remediationReady && !inProgress}
                     >
@@ -382,12 +426,12 @@ export default function CoursePage({
               })}
             </div>
 
-            {focusAreas.length > 5 && (
+            {focusAreas.length > DEFAULT_VISIBLE_FOCUS_AREAS && (
               <button
-                className="text-sm text-yellow-300"
+                className="text-sm text-blue-300"
                 onClick={() => setShowMore((s) => !s)}
               >
-                {showMore ? 'Show fewer' : `More areas to review (${focusAreas.length - 5})`}
+                {focusListToggleLabel(showMore)}
               </button>
             )}
           </div>
@@ -461,16 +505,40 @@ export default function CoursePage({
                     </span>
                   )}
                 </div>
-                {chapter.learning_objectives?.length ? (
-                  <div className="space-y-1">
-                    <div className="text-sm text-gray-400">{CHAPTER_OUTCOMES_INTRO}</div>
-                    <ul className="list-disc pl-5 text-sm text-gray-300 space-y-0.5">
-                      {chapter.learning_objectives.map((obj: string, oi: number) => (
-                        <li key={oi}>{obj}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
+                {chapter.learning_objectives?.length ? (() => {
+                  // Keep cards short: show the first 2 outcomes; the rest are one
+                  // click away (full learning depth preserved on demand).
+                  const objectives: string[] = chapter.learning_objectives;
+                  const expanded = !!expandedObjectives[chapter.id];
+                  const visible = expanded
+                    ? objectives
+                    : objectives.slice(0, DEFAULT_VISIBLE_OBJECTIVES);
+                  const hasMore = objectives.length > DEFAULT_VISIBLE_OBJECTIVES;
+                  return (
+                    <div className="space-y-1">
+                      <div className="text-sm text-gray-400">{CHAPTER_OUTCOMES_INTRO}</div>
+                      <ul className="list-disc pl-5 text-sm text-gray-300 space-y-0.5">
+                        {visible.map((obj: string, oi: number) => (
+                          <li key={oi}>{obj}</li>
+                        ))}
+                      </ul>
+                      {hasMore && (
+                        <button
+                          type="button"
+                          className="text-sm text-blue-300 hover:text-blue-200"
+                          onClick={() =>
+                            setExpandedObjectives((s) => ({
+                              ...s,
+                              [chapter.id]: !s[chapter.id],
+                            }))
+                          }
+                        >
+                          {showMoreLabel(expanded)}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })() : (
                   <ScannableText
                     text={chapter.summary}
                     keyTerms={extractKeyTerms({
@@ -518,7 +586,7 @@ export default function CoursePage({
                 {quizState === 'READY' && isStartHere && (
                   <a
                     href={sessionHref(courseId, chapter.id)}
-                    className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
+                    className={`${primaryButtonClass} px-4 py-2`}
                   >
                     {buttonLabel}
                   </a>

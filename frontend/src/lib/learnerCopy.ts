@@ -185,6 +185,34 @@ export function chapterCtaLabel(chapterStatus?: string | null): string {
   return 'Start here';
 }
 
+// --- Progressive disclosure (reduce on-screen text density) ------------------
+// How many items a card shows before a "Show more" control. Display-only: the
+// full content is always one click away — nothing is removed from the data.
+export const DEFAULT_VISIBLE_OBJECTIVES = 2;
+export const DEFAULT_VISIBLE_FOCUS_AREAS = 2;
+
+export const SHOW_MORE_LABEL = 'Show more';
+export const SHOW_LESS_LABEL = 'Show less';
+export const SHOW_DETAILS_LABEL = 'Show details';
+export const HIDE_DETAILS_LABEL = 'Hide details';
+export const SHOW_MORE_FOCUS_LABEL = 'Show more focus areas';
+export const SHOW_FEWER_FOCUS_LABEL = 'Show fewer';
+
+/** Toggle label for a show-more / show-less control. */
+export function showMoreLabel(expanded: boolean): string {
+  return expanded ? SHOW_LESS_LABEL : SHOW_MORE_LABEL;
+}
+
+/** Toggle label for a subtle show / hide details control. */
+export function detailsToggleLabel(expanded: boolean): string {
+  return expanded ? HIDE_DETAILS_LABEL : SHOW_DETAILS_LABEL;
+}
+
+/** Toggle label for the focus-areas list (top N shown by default). */
+export function focusListToggleLabel(expanded: boolean): string {
+  return expanded ? SHOW_FEWER_FOCUS_LABEL : SHOW_MORE_FOCUS_LABEL;
+}
+
 // --- Home page copy + mode (display-only) -----------------------------------
 export const HOME_HERO_HEADLINE = 'Turn any video or PDF into a guided learning path.';
 export const HOME_VALUE_PROP =
@@ -217,6 +245,63 @@ export function flashcardRatedLine(rating: string, intervalDays: number): string
         ? 'tomorrow'
         : `in ${intervalDays} days`;
   return `Marked as ${String(rating).toLowerCase()} · next review ${when}`;
+}
+
+// --- Flashcard back presentation (display-only) ------------------------------
+// A revealed card back reads best as short labeled sections. Newer cards use
+// "Answer:" / "Why it matters:" / "Watch out:" lines; older freeform cards have
+// none and render as one block (unchanged). The rating prompt frames the SM-2
+// rating as one clear memory judgement before Again/Hard/Good/Easy.
+
+export const FLASHCARD_RATING_PROMPT = 'How well did you remember this?';
+export const SOURCE_NOTE_LABEL = 'Source note';
+export const ANSWER_LABEL = 'Answer';
+export const WHY_LABEL = 'Why it matters';
+export const WATCH_OUT_LABEL = 'Watch out';
+
+export type FlashcardSection = { label: string | null; body: string };
+
+// Leading labels recognized at the start of a back line (canonical ← matcher).
+const FLASHCARD_BACK_LABELS: Array<{ canonical: string; match: RegExp }> = [
+  { canonical: ANSWER_LABEL, match: /^answer$/i },
+  { canonical: WHY_LABEL, match: /^(why it matters|why)$/i },
+  { canonical: WATCH_OUT_LABEL, match: /^(watch[ -]?out|trap|gotcha)$/i },
+];
+
+/**
+ * Split a flashcard back into readable sections. A line beginning with a
+ * recognized "Label: …" becomes a labeled section; everything else is plain
+ * text, with consecutive unlabeled lines merged so an OLD freeform card stays a
+ * single block and renders exactly as before. Pure and display-only — never
+ * mutates stored text; cloze blanks are handled at render time.
+ */
+export function flashcardBackSections(back: string | null | undefined): FlashcardSection[] {
+  const text = (back ?? '').trim();
+  if (!text) return [];
+  const out: FlashcardSection[] = [];
+  for (const rawLine of text.split(/\n+/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    let label: string | null = null;
+    let body = line;
+    // A label is a short word/phrase immediately before a colon with content
+    // after it (so prose like "Why does X happen" is never treated as a label).
+    const m = line.match(/^([A-Za-z][A-Za-z -]{1,18}?):\s*(.+)$/);
+    if (m) {
+      const found = FLASHCARD_BACK_LABELS.find((l) => l.match.test(m[1].trim()));
+      if (found) {
+        label = found.canonical;
+        body = m[2].trim();
+      }
+    }
+    const prev = out[out.length - 1];
+    if (label === null && prev && prev.label === null) {
+      prev.body = `${prev.body}\n${body}`;
+    } else {
+      out.push({ label, body });
+    }
+  }
+  return out;
 }
 
 // Above-the-fold hero for the course page. Before starting, the page introduces
@@ -304,6 +389,27 @@ export function sessionEmptyState(input: {
 // Focus-practice copy (coached, mirrors the main session).
 export const FOCUS_EYEBROW = 'Focus practice';
 export const FOCUS_CONTEXT = 'Strengthen this weak spot';
+
+// Shared button styles so every primary action looks the same. Primary actions
+// read as blue; secondary actions are quiet/bordered. Padding/sizing is added
+// per call site (these cover color/shape/font/disabled only) to avoid
+// conflicting Tailwind padding utilities.
+export const primaryButtonClass =
+  'inline-block rounded-lg bg-blue-500 font-medium text-white hover:bg-blue-400 disabled:opacity-50';
+export const secondaryButtonClass =
+  'inline-block rounded-lg border border-gray-700 font-medium text-gray-200 hover:bg-gray-800 disabled:opacity-50';
+
+// Learner-facing names for the course's progress metrics (display-only — the
+// underlying retention/mastery data is unchanged in code/telemetry).
+export const METRIC_REMEMBERED_LABEL = 'Remembered';
+export const METRIC_SOLID_LEARNING_LABEL = 'Solid / Still learning';
+export const METRIC_NEEDS_LOOK_LABEL = 'Needs another look';
+export const METRIC_READY_TO_REVIEW_LABEL = 'Ready to review';
+
+/** "~N a day to stay on track" — pace without exposing planner mechanics. */
+export function stayOnTrackLine(perDay: number): string {
+  return `~${perDay} a day to stay on track`;
+}
 
 /**
  * Render learner-facing blanks: replace cloze placeholders like "{{blank}}" (or

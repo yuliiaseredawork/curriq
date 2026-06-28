@@ -64,6 +64,29 @@ for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPa
   assert.ok(/renderClozeText\(/.test(src), `${name} renders cloze blanks`);
 }
 
+// --- flashcard quality + readable back presentation (Task 14) ----------------
+const flashcardBack = read('components/FlashcardBack.tsx');
+for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
+  // A clear rating prompt appears before Again/Hard/Good/Easy.
+  assert.ok(/FLASHCARD_RATING_PROMPT/.test(src), `${name} shows the flashcard rating prompt`);
+  // Both review surfaces render the one shared, readable back component.
+  assert.ok(/FlashcardBack/.test(src), `${name} renders the shared FlashcardBack`);
+  // The raw source quote / misconception are no longer dumped inline as answer.
+  assert.ok(!/back\.sourceQuote &&/.test(src), `${name} no longer renders the source quote inline`);
+  assert.ok(
+    !/Watch out: \{back\.misconceptionTarget\}/.test(src),
+    `${name} no longer renders the misconception inline`,
+  );
+}
+// The shared back: source quote tucked behind a "Source note" disclosure (never
+// the main answer), readable sections, and cloze still protected.
+assert.ok(/SOURCE_NOTE_LABEL/.test(flashcardBack), 'source quote is behind a "Source note" disclosure');
+assert.ok(/showSource/.test(flashcardBack), 'the source note is collapsed by default');
+assert.ok(/flashcardBackSections\(/.test(flashcardBack), 'back is split into readable sections');
+assert.ok(/renderClozeText\(/.test(flashcardBack), 'flashcard back renders cloze blanks as "_____"');
+// Malformed answers keep their defensive "skip this card" guard.
+assert.ok(/back\.malformed/.test(flashcardBack), 'malformed-answer guard is preserved');
+
 // --- chapter CTA is chapter-scoped (Task 11) --------------------------------
 assert.ok(/sessionHref\(courseId, chapter\.id\)/.test(course), 'chapter CTA links to a chapter-scoped session');
 const chapterRedirect = read('app/courses/[courseId]/chapters/[chapterId]/page.tsx');
@@ -74,6 +97,30 @@ const focus = read('app/courses/[courseId]/focus/[concept]/page.tsx');
 assert.ok(!/question\.difficulty/.test(focus), 'focus page no longer renders raw difficulty');
 assert.ok(!/concept_tags\?\.join/.test(focus), 'focus page no longer renders joined concept_tags');
 assert.ok(/FOCUS_EYEBROW/.test(focus) && /FOCUS_CONTEXT/.test(focus), 'focus page uses coached copy');
+
+// --- polish pass: calmer metrics, source labels, unified buttons (Task 12) ---
+// Internal metric labels are renamed/tucked (the literal labels are gone).
+assert.ok(!/>Retention</.test(course) && !/'Retention'/.test(course), 'no "Retention" label');
+assert.ok(!/Forgotten/.test(course), 'no "Forgotten" label');
+assert.ok(!/Mastered \/ Learning/.test(course), 'no "Mastered / Learning" label');
+assert.ok(!/reviews\/day/.test(course), 'no planner "reviews/day" wording');
+assert.ok(/showMetricDetails/.test(course), 'analytical metrics behind a Details disclosure');
+// Focus block is no longer a yellow warning container.
+assert.ok(
+  !/border-yellow-800 bg-yellow-950\/30/.test(course),
+  'focus block no longer uses the warning-yellow container',
+);
+// Primary CTAs share one style.
+assert.ok(/primaryButtonClass/.test(course), 'course page CTAs use primaryButtonClass');
+assert.ok(/primaryButtonClass/.test(read('components/CourseCard.tsx')), 'course card uses primaryButtonClass');
+assert.ok(/primaryButtonClass/.test(read('app/page.tsx')), 'home plan CTA uses primaryButtonClass');
+assert.ok(/primaryButtonClass/.test(session), 'session Next task uses primaryButtonClass');
+// Course card shows no raw URL.
+assert.ok(!/sourceUrl \?\? course\.playlistUrl/.test(read('components/CourseCard.tsx')), 'card no longer renders a raw source URL');
+
+// --- session feedback copy: "Model answer" not "Ideal answer" ----------------
+assert.ok(/Model answer/.test(session), 'session uses "Model answer"');
+assert.ok(!/Ideal answer/.test(session), 'session no longer uses "Ideal answer"');
 
 // --- not-started course hides empty analytics; started keeps them -----------
 assert.ok(/const started = progressView\.started/.test(course), 'single started flag is computed');
@@ -96,6 +143,28 @@ assert.ok(
 );
 // Quiz readiness controls are untouched (not regressed).
 assert.ok(/quizState === 'GENERATING'/.test(course) && /quizState === 'NOT_STARTED'/.test(course), 'generate/generating quiz controls remain');
+
+// --- reduced text density: short cards by default (Task 13) ------------------
+// Chapter cards limit visible learning objectives by default, with a toggle for
+// the rest (full depth preserved on demand).
+assert.ok(/DEFAULT_VISIBLE_OBJECTIVES/.test(course), 'chapter objectives are limited to a default count');
+assert.ok(/expandedObjectives/.test(course), 'chapter objectives have a Show more/less toggle');
+assert.ok(/showMoreLabel\(/.test(course), 'chapter objectives toggle uses coach-like Show more/less copy');
+assert.ok(!/chapter\.learning_objectives\.map\(/.test(course), 'chapter no longer renders every objective unconditionally');
+
+// Focus block shows only the top few areas by default (was 5 → now a small default).
+assert.ok(/focusAreas\.slice\(0, DEFAULT_VISIBLE_FOCUS_AREAS\)/.test(course), 'focus areas limited to the top N by default');
+assert.ok(!/slice\(0, 5\)/.test(course), 'focus areas no longer default to showing 5');
+assert.ok(/focusListToggleLabel\(/.test(course), 'focus list uses "Show more focus areas" affordance');
+
+// Raw "Covers: …" concept detail is tucked behind a subtle details control,
+// not always on screen.
+assert.ok(/expandedCovers/.test(course), 'raw "Covers:" detail is behind a details toggle');
+assert.ok(/detailsToggleLabel\(/.test(course), 'covers detail uses a Show/Hide details control');
+assert.ok(
+  /expandedCovers\[item\.conceptSlug\] &&[\s\S]{0,240}Covers:/.test(course),
+  '"Covers:" only renders when its details toggle is expanded',
+);
 
 // --- READY course card opens the course page, not a session -----------------
 const card = read('components/CourseCard.tsx');

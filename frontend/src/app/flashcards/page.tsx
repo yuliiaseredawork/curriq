@@ -5,8 +5,9 @@ import { useAuth } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
+import { FlashcardBack } from '@/components/FlashcardBack';
 import { extractKeyTerms } from '@/lib/highlightTerms';
-import { flashcardRatedLine, renderClozeText } from '@/lib/learnerCopy';
+import { flashcardRatedLine, renderClozeText, FLASHCARD_RATING_PROMPT } from '@/lib/learnerCopy';
 
 export default function FlashcardsPage() {
   const { getToken, isLoaded } = useAuth();
@@ -110,20 +111,8 @@ export default function FlashcardsPage() {
         <ScannableText text={renderClozeText(card.front)} keyTerms={keyTerms} className="text-lg font-medium" />
 
         {back && (
-          <div className="border-t border-gray-800 pt-4 space-y-2">
-            {back.malformed ? (
-              <p className="text-sm text-yellow-400">
-                This answer looks incomplete and is being reviewed. Please skip this card for now.
-              </p>
-            ) : (
-              <ScannableText text={renderClozeText(back.back)} keyTerms={keyTerms} className="text-gray-200" />
-            )}
-            {back.sourceQuote && (
-              <p className="text-xs text-gray-500 italic">“{back.sourceQuote}”</p>
-            )}
-            {back.misconceptionTarget && (
-              <p className="text-xs text-yellow-400">Watch out: {back.misconceptionTarget}</p>
-            )}
+          <div className="border-t border-gray-800 pt-4">
+            <FlashcardBack back={back} concept={card.concept} />
           </div>
         )}
       </section>
@@ -143,7 +132,10 @@ export default function FlashcardsPage() {
           </button>
         </div>
       ) : (
-        <RatingButtons onRate={handleRate} disabled={rating} />
+        <div className="space-y-2">
+          <p className="text-center text-sm text-gray-400">{FLASHCARD_RATING_PROMPT}</p>
+          <RatingButtons onRate={handleRate} disabled={rating} />
+        </div>
       )}
     </Shell>
   );

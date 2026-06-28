@@ -1,5 +1,5 @@
 import { courseIdentity } from '@/lib/courseIdentity';
-import { courseStatusLabel, START_COURSE_LABEL } from '@/lib/learnerCopy';
+import { courseStatusLabel, START_COURSE_LABEL, primaryButtonClass } from '@/lib/learnerCopy';
 
 // One row in "My Courses":
 //  - FAILED  → non-link card with a plain-language reason + Retry.
@@ -24,10 +24,9 @@ export function CourseCard({
       : course.sourceType === 'YOUTUBE_VIDEO'
         ? 'YouTube video'
         : 'YouTube playlist';
-  const sourceLine =
-    course.sourceType === 'PDF'
-      ? course.sourceFileName
-      : course.sourceUrl ?? course.playlistUrl;
+  // PDF keeps its (clean) file name; YouTube shows just the label, never the
+  // raw URL.
+  const sourceLine = course.sourceType === 'PDF' ? course.sourceFileName : null;
 
   const header = (statusNode: React.ReactNode) => (
     <div className="flex items-start justify-between gap-4">
@@ -44,7 +43,7 @@ export function CourseCard({
             {sourceLabel}
           </span>
         </div>
-        <p className="text-sm text-gray-400 break-all">{sourceLine}</p>
+        {sourceLine && <p className="text-sm text-gray-400 truncate">{sourceLine}</p>}
       </div>
       {statusNode}
     </div>
@@ -96,9 +95,8 @@ export function CourseCard({
       className="block rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3 hover:bg-gray-800 transition"
     >
       {header(null)}
-      <span className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white">
-        {START_COURSE_LABEL}
-      </span>
+      <span className={`${primaryButtonClass} px-4 py-2 text-sm`}>{START_COURSE_LABEL}</span>
+      {/* padding/size per call site; primaryButtonClass carries color/shape */}
     </a>
   );
 }

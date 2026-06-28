@@ -7,6 +7,7 @@ import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
 import { McqChoices } from '@/components/McqChoices';
+import { FlashcardBack } from '@/components/FlashcardBack';
 import { extractKeyTerms } from '@/lib/highlightTerms';
 import {
   sessionProgressLabel,
@@ -17,6 +18,8 @@ import {
   taskContextLine,
   flashcardRatedLine,
   renderClozeText,
+  primaryButtonClass,
+  FLASHCARD_RATING_PROMPT,
 } from '@/lib/learnerCopy';
 import { parseSessionScope } from '@/lib/sessionScope';
 
@@ -210,18 +213,8 @@ function SessionInner() {
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4 min-h-[180px]">
           <ScannableText text={renderClozeText(task.front)} keyTerms={keyTerms} className="text-lg font-medium" />
           {back && (
-            <div className="border-t border-gray-800 pt-4 space-y-2">
-              {back.malformed ? (
-                <p className="text-sm text-yellow-400">
-                  This answer looks incomplete and is being reviewed. Please skip this card for now.
-                </p>
-              ) : (
-                <ScannableText text={renderClozeText(back.back)} keyTerms={keyTerms} className="text-gray-200" />
-              )}
-              {back.sourceQuote && <p className="text-xs text-gray-500 italic">“{back.sourceQuote}”</p>}
-              {back.misconceptionTarget && (
-                <p className="text-xs text-yellow-400">Watch out: {back.misconceptionTarget}</p>
-              )}
+            <div className="border-t border-gray-800 pt-4">
+              <FlashcardBack back={back} concept={task.concept} />
             </div>
           )}
         </section>
@@ -233,12 +226,15 @@ function SessionInner() {
         ) : rated ? (
           <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3 text-center">
             <p className="text-gray-300">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
-            <button className="rounded-lg bg-blue-500 px-5 py-3 text-white" onClick={advance}>
+            <button className={`${primaryButtonClass} px-5 py-3`} onClick={advance}>
               {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
             </button>
           </div>
         ) : (
-          <RatingButtons onRate={handleRate} disabled={busy} />
+          <div className="space-y-2">
+            <p className="text-center text-sm text-gray-400">{FLASHCARD_RATING_PROMPT}</p>
+            <RatingButtons onRate={handleRate} disabled={busy} />
+          </div>
         )}
       </>
     );
@@ -324,7 +320,7 @@ function SessionInner() {
               )}
               {feedback.idealAnswer && (
                 <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Ideal answer</div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Model answer</div>
                   <ScannableText
                     text={feedback.idealAnswer}
                     keyTerms={keyTermsForQuestion}

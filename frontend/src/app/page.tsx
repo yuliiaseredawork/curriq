@@ -13,6 +13,7 @@ import {
   HOME_HERO_STEPS,
   TODAYS_PLAN_LABEL,
   CONTINUE_LEARNING_LABEL,
+  primaryButtonClass,
   YOUR_COURSES_LABEL,
   CREATE_LEARNING_PATH_LABEL,
   CAUGHT_UP_TITLE,
@@ -340,10 +341,7 @@ export default function Home() {
             </div>
           )}
         </div>
-        <a
-          href="/session"
-          className="shrink-0 rounded-lg bg-blue-500 px-5 py-3 text-sm font-medium text-white"
-        >
+        <a href="/session" className={`${primaryButtonClass} shrink-0 px-5 py-3 text-sm`}>
           {CONTINUE_LEARNING_LABEL}
         </a>
       </div>

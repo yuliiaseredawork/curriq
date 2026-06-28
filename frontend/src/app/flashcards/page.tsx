@@ -7,7 +7,14 @@ import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
 import { FlashcardBack } from '@/components/FlashcardBack';
 import { extractKeyTerms } from '@/lib/highlightTerms';
-import { flashcardRatedLine, renderClozeText, FLASHCARD_RATING_PROMPT } from '@/lib/learnerCopy';
+import {
+  flashcardRatedLine,
+  renderClozeText,
+  FLASHCARD_RATING_PROMPT,
+  FLASHCARD_REVIEW_EYEBROW,
+  FLASHCARD_SAVED_LABEL,
+} from '@/lib/learnerCopy';
+import { pageShell, elevatedCard, eyebrow, ghostLink, primaryButtonClass } from '@/lib/ui';
 
 export default function FlashcardsPage() {
   const { getToken, isLoaded } = useAuth();
@@ -75,22 +82,22 @@ export default function FlashcardsPage() {
     : [];
 
   const Shell = ({ children }: { children: React.ReactNode }) => (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <a href="/" className="text-blue-400">← Home</a>
+    <main className={pageShell}>
+      <div className="mx-auto w-full max-w-2xl space-y-6 px-5 py-8 sm:px-8 sm:py-10">
+        <a href="/" className={ghostLink}>← Home</a>
         {children}
       </div>
     </main>
   );
 
   if (loading) return <Shell><p className="text-gray-300">Loading…</p></Shell>;
-  if (error) return <Shell><div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">{error}</div></Shell>;
+  if (error) return <Shell><div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">{error}</div></Shell>;
   if (done) {
     return (
       <Shell>
-        <div className="rounded-xl border border-green-700 bg-green-950 p-6">
-          <div className="text-2xl font-bold">Review complete for today 🎉</div>
-          <p className="text-gray-200 mt-1">
+        <div className="rounded-2xl border border-green-500/30 bg-green-950/25 p-8 text-center">
+          <div className="text-2xl font-bold tracking-tight">Review complete for today 🎉</div>
+          <p className="mt-1 text-gray-300">
             {reviewed > 0 ? `You reviewed ${reviewed} card${reviewed === 1 ? '' : 's'}.` : 'No flashcards are due.'}
           </p>
         </div>
@@ -101,17 +108,25 @@ export default function FlashcardsPage() {
 
   return (
     <Shell>
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-purple-300">{card.courseTitle} · {card.concept}</span>
-        <span className="text-gray-500">{totalDue} due · {reviewed} done</span>
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className={`${eyebrow} text-purple-300`}>{FLASHCARD_REVIEW_EYEBROW}</span>
+          <span className="truncate rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-xs text-gray-400">
+            {card.concept}
+          </span>
+        </div>
+        <span className="shrink-0 text-gray-500">{totalDue} due · {reviewed} done</span>
       </div>
 
-      <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4 min-h-[180px]">
-        <div className="text-xs uppercase tracking-wide text-gray-500">{card.type}</div>
-        <ScannableText text={renderClozeText(card.front)} keyTerms={keyTerms} className="text-lg font-medium" />
+      <section className={`${elevatedCard} flex min-h-[200px] flex-col justify-center gap-4 p-6 sm:p-7`}>
+        <ScannableText
+          text={renderClozeText(card.front)}
+          keyTerms={keyTerms}
+          className="text-xl font-medium leading-relaxed"
+        />
 
         {back && (
-          <div className="border-t border-gray-800 pt-4">
+          <div className="border-t border-white/10 pt-4">
             <FlashcardBack back={back} concept={card.concept} />
           </div>
         )}
@@ -119,21 +134,22 @@ export default function FlashcardsPage() {
 
       {!back ? (
         <button
-          className="w-full rounded-lg bg-white text-black px-5 py-3 font-medium"
+          className="w-full rounded-xl bg-white px-5 py-3.5 font-medium text-black transition hover:bg-gray-100"
           onClick={handleReveal}
         >
           Show answer
         </button>
       ) : rated ? (
-        <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3 text-center">
-          <p className="text-gray-300">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
-          <button className="rounded-lg bg-blue-500 px-5 py-3 text-white" onClick={loadNext}>
+        <div className="rounded-2xl border border-green-500/25 bg-green-950/20 p-5 text-center space-y-3">
+          <div className="text-sm font-medium text-green-300">{FLASHCARD_SAVED_LABEL} ✓</div>
+          <p className="text-sm text-gray-400">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
+          <button className={`${primaryButtonClass} px-6 py-3`} onClick={loadNext}>
             Next card
           </button>
         </div>
       ) : (
-        <div className="space-y-2">
-          <p className="text-center text-sm text-gray-400">{FLASHCARD_RATING_PROMPT}</p>
+        <div className="space-y-2.5">
+          <p className="text-center text-sm font-medium text-gray-300">{FLASHCARD_RATING_PROMPT}</p>
           <RatingButtons onRate={handleRate} disabled={rating} />
         </div>
       )}

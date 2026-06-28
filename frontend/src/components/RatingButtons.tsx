@@ -7,10 +7,10 @@
 // fills. Full literal class strings so Tailwind includes them. Keys/labels and
 // behaviour are unchanged.
 export const RATINGS: Array<{ key: string; label: string; cls: string }> = [
-  { key: 'AGAIN', label: 'Again', cls: 'border border-red-800 bg-red-950/40 text-red-200 hover:bg-red-950/70' },
-  { key: 'HARD', label: 'Hard', cls: 'border border-orange-800 bg-orange-950/40 text-orange-200 hover:bg-orange-950/70' },
-  { key: 'GOOD', label: 'Good', cls: 'border border-blue-800 bg-blue-950/40 text-blue-200 hover:bg-blue-950/70' },
-  { key: 'EASY', label: 'Easy', cls: 'border border-green-800 bg-green-950/40 text-green-200 hover:bg-green-950/70' },
+  { key: 'AGAIN', label: 'Again', cls: 'border-red-500/25 bg-red-500/5 text-red-200 hover:border-red-500/40 hover:bg-red-500/10' },
+  { key: 'HARD', label: 'Hard', cls: 'border-orange-500/25 bg-orange-500/5 text-orange-200 hover:border-orange-500/40 hover:bg-orange-500/10' },
+  { key: 'GOOD', label: 'Good', cls: 'border-blue-500/25 bg-blue-500/5 text-blue-200 hover:border-blue-500/40 hover:bg-blue-500/10' },
+  { key: 'EASY', label: 'Easy', cls: 'border-green-500/25 bg-green-500/5 text-green-200 hover:border-green-500/40 hover:bg-green-500/10' },
 ];
 
 export function RatingButtons({
@@ -21,12 +21,12 @@ export function RatingButtons({
   disabled?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-4 gap-2.5">
       {RATINGS.map((r) => (
         <button
           key={r.key}
           disabled={disabled}
-          className={`rounded-lg ${r.cls} px-3 py-3 text-sm font-medium transition disabled:opacity-50`}
+          className={`rounded-xl border ${r.cls} px-3 py-3.5 text-sm font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100`}
           onClick={() => onRate(r.key)}
         >
           {r.label}

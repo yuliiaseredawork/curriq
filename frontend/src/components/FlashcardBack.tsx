@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import { ScannableText } from './ScannableText';
 import { extractKeyTerms } from '@/lib/highlightTerms';
 import {
-  flashcardBackSections,
+  parseFlashcardBack,
   renderClozeText,
-  SOURCE_NOTE_LABEL,
-  WATCH_OUT_LABEL,
+  FLASHCARD_ANSWER_LABEL,
+  FLASHCARD_WHY_LABEL,
+  FLASHCARD_WATCH_OUT_LABEL,
+  FLASHCARD_SOURCE_NOTE_LABEL,
 } from '@/lib/learnerCopy';
 
 // The reveal endpoint's payload (api: POST /flashcards/:id/reveal). All fields
@@ -19,15 +20,45 @@ export type RevealedBack = {
   misconceptionTarget?: string | null;
 };
 
+// One labeled section. Defined at module scope (not inside FlashcardBack) so it
+// is a stable component, and the label stays small/subtle per the dark UI.
+function BackSection({
+  label,
+  text,
+  keyTerms,
+  tone = 'default',
+}: {
+  label: string;
+  text: string;
+  keyTerms: string[];
+  tone?: 'default' | 'warn';
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div
+        className={`text-xs font-medium uppercase tracking-wide ${
+          tone === 'warn' ? 'text-amber-300/70' : 'text-gray-500'
+        }`}
+      >
+        {label}
+      </div>
+      <ScannableText
+        text={renderClozeText(text)}
+        keyTerms={keyTerms}
+        className={tone === 'warn' ? 'text-sm text-gray-300' : 'text-gray-200'}
+      />
+    </div>
+  );
+}
+
 /**
- * Renders a revealed flashcard back as short, scannable sections:
- *  - "Answer" / "Why it matters" / "Watch out" labeled lines when the card uses
- *    them; a single readable block for older freeform cards (fully compatible).
- *  - the misconception trap as a "Watch out" line (only when the back doesn't
- *    already include one, so it's never doubled).
- *  - the source quote tucked behind a subtle "Source note" disclosure — never
- *    shown as the main answer.
- * Display-only: no scheduling/rating behavior here; cloze blanks render "_____".
+ * Renders a revealed flashcard back as scannable sections:
+ *  - "Answer" / "Why it matters" / "Watch out" when the card uses those labels;
+ *  - a single readable block (paragraphs preserved) for older freeform cards;
+ *  - the source quote / note tucked inside a subtle "Source note" <details>,
+ *    never shown as the main answer.
+ * Display-only: no scheduling/rating here; cloze blanks render "_____". All
+ * existing stored cards stay compatible (nothing is dropped).
  */
 export function FlashcardBack({
   back,
@@ -36,10 +67,8 @@ export function FlashcardBack({
   back: RevealedBack;
   concept?: string | null;
 }) {
-  const [showSource, setShowSource] = useState(false);
-
-  // Defensive: a back that looks truncated/corrupted is flagged upstream — keep
-  // the existing "skip this card" message rather than presenting broken text.
+  // Defensive: a back flagged as truncated/corrupted upstream keeps the existing
+  // "skip this card" message rather than presenting broken text.
   if (back.malformed) {
     return (
       <p className="text-sm text-yellow-400">
@@ -48,56 +77,67 @@ export function FlashcardBack({
     );
   }
 
-  const sections = flashcardBackSections(back.back);
-  const hasWatchOut = sections.some((s) => s.label === WATCH_OUT_LABEL);
+  const parsed = parseFlashcardBack(back.back);
+  // A misconception stored separately reads as a "Watch out" when the back text
+  // doesn't already provide one.
+  const watchOut = parsed.watchOut ?? back.misconceptionTarget ?? null;
+  const hasStructure = !!(parsed.answer || parsed.why || watchOut);
+  // Source note can come from an embedded "Source:" label and/or the separate
+  // stored quote — both belong under the disclosure, never the answer body.
+  const hasSource = !!(parsed.sourceNote || back.sourceQuote);
+
   const keyTerms = extractKeyTerms({
-    text: [back.back ?? '', ...sections.map((s) => s.body)],
+    text: [back.back ?? '', parsed.answer ?? '', parsed.why ?? '', watchOut ?? ''],
     explicit: concept ? [concept] : [],
   });
 
   return (
     <div className="space-y-3">
-      {sections.map((s, i) => {
-        const watch = s.label === WATCH_OUT_LABEL;
-        return (
-          <div key={i} className="space-y-0.5">
-            {s.label && (
-              <div
-                className={`text-xs font-medium uppercase tracking-wide ${
-                  watch ? 'text-yellow-300' : 'text-gray-500'
-                }`}
-              >
-                {s.label}
-              </div>
-            )}
-            <ScannableText
-              text={renderClozeText(s.body)}
+      {hasStructure ? (
+        <>
+          {parsed.answer && (
+            <BackSection label={FLASHCARD_ANSWER_LABEL} text={parsed.answer} keyTerms={keyTerms} />
+          )}
+          {parsed.why && (
+            <BackSection label={FLASHCARD_WHY_LABEL} text={parsed.why} keyTerms={keyTerms} />
+          )}
+          {watchOut && (
+            <BackSection
+              label={FLASHCARD_WATCH_OUT_LABEL}
+              text={watchOut}
               keyTerms={keyTerms}
-              className={watch ? 'text-sm text-yellow-200' : 'text-gray-200'}
+              tone="warn"
             />
-          </div>
-        );
-      })}
-
-      {back.misconceptionTarget && !hasWatchOut && (
-        <p className="text-xs text-yellow-400">
-          {WATCH_OUT_LABEL}: {back.misconceptionTarget}
-        </p>
+          )}
+          {/* Never drop content: any unplaceable leftover renders plainly. */}
+          {parsed.fallback && (
+            <ScannableText
+              text={renderClozeText(parsed.fallback)}
+              keyTerms={keyTerms}
+              className="text-gray-200"
+            />
+          )}
+        </>
+      ) : (
+        <ScannableText
+          text={renderClozeText(parsed.fallback ?? back.back ?? '')}
+          keyTerms={keyTerms}
+          className="text-gray-200"
+        />
       )}
 
-      {back.sourceQuote && (
-        <div className="text-xs">
-          <button
-            type="button"
-            className="text-gray-500 hover:text-gray-300"
-            onClick={() => setShowSource((v) => !v)}
-          >
-            {showSource ? `Hide ${SOURCE_NOTE_LABEL.toLowerCase()}` : SOURCE_NOTE_LABEL}
-          </button>
-          {showSource && (
-            <p className="mt-1 italic text-gray-500">“{back.sourceQuote}”</p>
-          )}
-        </div>
+      {hasSource && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-gray-500 hover:text-gray-300">
+            {FLASHCARD_SOURCE_NOTE_LABEL}
+          </summary>
+          <div className="mt-1 space-y-1">
+            {parsed.sourceNote && (
+              <p className="text-gray-400">{renderClozeText(parsed.sourceNote)}</p>
+            )}
+            {back.sourceQuote && <p className="italic text-gray-500">“{back.sourceQuote}”</p>}
+          </div>
+        </details>
       )}
     </div>
   );

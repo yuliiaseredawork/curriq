@@ -28,6 +28,19 @@ import {
   METRIC_READY_TO_REVIEW_LABEL,
 } from '@/lib/learnerCopy';
 import { sessionHref } from '@/lib/sessionScope';
+import {
+  pageShell,
+  readingContainer,
+  primaryCard,
+  subtleCard,
+  accentCard,
+  sectionHeading,
+  eyebrow,
+  ghostLink,
+  progressTrack,
+  progressFill,
+  secondaryButtonClass,
+} from '@/lib/ui';
 
 export default function CoursePage({
   params,
@@ -163,12 +176,12 @@ export default function CoursePage({
 
   if (error) {
     return (
-      <main className="min-h-screen bg-gray-950 text-white p-8">
-        <div className="max-w-3xl mx-auto">
-          <a href="/" className="text-blue-400">
-            ← My Courses
+      <main className={pageShell}>
+        <div className={readingContainer}>
+          <a href="/" className={ghostLink}>
+            ← My courses
           </a>
-          <div className="mt-6 rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">
+          <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">
             {error}
           </div>
         </div>
@@ -178,8 +191,8 @@ export default function CoursePage({
 
   if (!course) {
     return (
-      <main className="min-h-screen bg-gray-950 text-white p-8">
-        Loading...
+      <main className={`${pageShell} p-8`}>
+        <p className="text-gray-400">Loading…</p>
       </main>
     );
   }
@@ -201,46 +214,50 @@ export default function CoursePage({
   );
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <a href="/" className="text-blue-400">
-          ← My Courses
+    <main className={pageShell}>
+      <div className={`${readingContainer} space-y-6`}>
+        <a href="/" className={ghostLink}>
+          ← My courses
         </a>
 
         {(() => {
           const id = courseIdentity(course.outline.title);
           return (
             <div className="flex items-center gap-3">
-              <span className={`shrink-0 rounded-lg border ${id.accentClass} px-3 py-1.5 text-2xl`}>
+              <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl border text-2xl ${id.accentClass}`}>
                 {id.icon}
               </span>
-              <div>
-                <div className={`text-xs uppercase tracking-wide ${id.accentClass.split(' ').find((x) => x.startsWith('text-')) ?? 'text-gray-400'}`}>
+              <div className="min-w-0">
+                <div className={`${eyebrow} ${id.accentClass.split(' ').find((x) => x.startsWith('text-')) ?? 'text-gray-400'}`}>
                   {id.category}
                 </div>
-                <h1 className="text-3xl font-bold">{course.outline.title}</h1>
+                <h1 className="text-3xl font-bold tracking-tight">{course.outline.title}</h1>
               </div>
             </div>
           );
         })()}
 
-        {/* Above the fold: introduce the learning path (new) or resume it (started). */}
+        {/* Above the fold: the course launch area — introduce the learning path
+            (new) or resume it (started). */}
         {(() => {
           const hasChapters = (course.outline.chapters?.length ?? 0) > 0;
           const hero = courseHero({ started, hasChapters });
           return (
-            <div className="space-y-3">
+            <div className={`${accentCard} space-y-4 p-6`}>
               <div>
-                <h2 className="text-2xl font-semibold">{hero.title}</h2>
-                <p className="mt-1 text-sm text-gray-400">{hero.subtitle}</p>
+                <h2 className="text-2xl font-semibold tracking-tight">{hero.title}</h2>
+                <p className="mt-1.5 text-sm text-gray-300">{hero.subtitle}</p>
               </div>
               {started && (
-                <p className="text-sm text-gray-300">
+                <p className="text-sm font-medium text-blue-200">
                   {progressView.headline} · {progressView.status}
                 </p>
               )}
-              <button className={`${primaryButtonClass} px-5 py-3`} onClick={handleContinue}>
-                {hero.ctaLabel}
+              <button
+                className={`${primaryButtonClass} px-6 py-3 shadow-md shadow-blue-900/50`}
+                onClick={handleContinue}
+              >
+                {hero.ctaLabel} →
               </button>
             </div>
           );
@@ -249,20 +266,20 @@ export default function CoursePage({
         {/* Progress + metrics only matter once the learner has started — a
             brand-new course shows the path instead of empty analytics. */}
         {started && (progress || retention) && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
-            <div>
-              <div className="text-sm text-gray-400">Learning progress</div>
+          <div className={`${primaryCard} p-5 space-y-3`}>
+            <div className="flex items-baseline justify-between">
+              <div className={`${eyebrow} text-gray-400`}>Learning progress</div>
               <div className="text-2xl font-semibold">{progressView.headline}</div>
             </div>
-            <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
-              <div className="h-full bg-blue-500" style={{ width: `${progressView.pct}%` }} />
+            <div className={progressTrack}>
+              <div className={progressFill} style={{ width: `${progressView.pct}%` }} />
             </div>
             <div className="text-sm text-gray-400">{progressView.status}</div>
           </div>
         )}
 
         {started && (course.metadata?.targetDate || retention || cardsDue) && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-4">
+          <div className={`${primaryCard} p-5 space-y-4`}>
             {/* Actionable, always visible: what's ready + the deadline. */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 text-sm">
               {cardsDue != null && cardsDue > 0 && (
@@ -339,10 +356,10 @@ export default function CoursePage({
         )}
 
         {(focusAreas.length > 0 || focusPreparing) && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3">
+          <div className={`${primaryCard} p-5 space-y-3`}>
             <div>
-              <div className="text-sm text-blue-300">Coach&apos;s pick</div>
-              <h2 className="text-xl font-semibold">What to work on next</h2>
+              <div className={`${eyebrow} text-blue-300`}>Coach&apos;s pick</div>
+              <h2 className="text-xl font-semibold tracking-tight">What to work on next</h2>
             </div>
 
             {focusPreparing && focusAreas.length === 0 && (
@@ -359,7 +376,7 @@ export default function CoursePage({
                 return (
                   <div
                     key={item.conceptSlug}
-                    className="flex items-start justify-between gap-3 rounded-lg bg-gray-950 border border-gray-800 px-4 py-3"
+                    className={`${subtleCard} flex items-start justify-between gap-3 px-4 py-3`}
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="font-medium">{item.title}</div>
@@ -385,8 +402,8 @@ export default function CoursePage({
                           <span> · last practiced {new Date(item.lastPracticedAt).toLocaleDateString()}</span>
                         )}
                       </div>
-                      <div className="h-1.5 w-40 rounded-full bg-gray-800 overflow-hidden">
-                        <div className="h-full bg-blue-500" style={{ width: `${item.masteryScore}%` }} />
+                      <div className={`${progressTrack} h-1.5 w-40`}>
+                        <div className={progressFill} style={{ width: `${item.masteryScore}%` }} />
                       </div>
                       {item.rawConcepts?.length > 0 && (
                         <div className="text-xs">
@@ -438,9 +455,9 @@ export default function CoursePage({
         )}
 
         {masteredAreas.length > 0 && (
-          <div className="rounded-xl border border-green-900 bg-green-950/20 p-4">
+          <div className="rounded-2xl border border-green-500/20 bg-green-950/15 p-4">
             <button
-              className="text-sm text-green-300"
+              className="text-sm font-medium text-green-300 hover:text-green-200"
               onClick={() => setShowMastered((s) => !s)}
             >
               {showMastered ? '▾' : '▸'} Mastered concepts ({masteredAreas.length})
@@ -450,10 +467,10 @@ export default function CoursePage({
                 {masteredAreas.map((item) => (
                   <div
                     key={item.conceptSlug}
-                    className="flex items-center justify-between rounded-lg bg-gray-950 border border-gray-800 px-4 py-2 text-sm"
+                    className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-2 text-sm"
                   >
                     <span className="truncate">{item.title}</span>
-                    <span className="text-green-400">Mastery {item.masteryScore}% ✓</span>
+                    <span className="shrink-0 text-green-400">{item.masteryScore}% ✓</span>
                   </div>
                 ))}
               </div>
@@ -462,6 +479,7 @@ export default function CoursePage({
         )}
 
         <div className="space-y-4">
+          <h2 className={sectionHeading}>Learning path</h2>
           {(() => {
           // The first not-yet-completed chapter is the learner's "start here".
           const firstIncompleteIndex = course.outline.chapters.findIndex((ch: any) => {
@@ -482,28 +500,41 @@ export default function CoursePage({
             const badge = quizBadge(quizState, started);
             const badgeCls =
               quizState === 'FAILED'
-                ? 'border-red-700 text-red-300'
+                ? 'border-red-500/40 text-red-300'
                 : quizState === 'GENERATING'
-                  ? 'border-blue-700 text-blue-300'
-                  : 'border-gray-700 text-gray-300';
+                  ? 'border-blue-500/40 text-blue-300'
+                  : 'border-white/10 text-gray-300';
+
+            // The current chapter gets a subtle accent so the path has a clear
+            // "you are here"; all other chapters stay calm and readable.
+            const cardCls = isStartHere
+              ? 'rounded-2xl border border-blue-500/30 bg-gray-900/70 p-5 space-y-3 shadow-lg shadow-blue-950/20 ring-1 ring-blue-500/15'
+              : `${primaryCard} p-5 space-y-3`;
 
             return (
-              <div
-                key={chapter.id}
-                className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <div className="text-xs uppercase tracking-wide text-gray-500">
-                      Chapter {i + 1}
+              <div key={chapter.id} className={cardCls}>
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-semibold ${
+                      isStartHere
+                        ? 'bg-blue-500 text-white'
+                        : 'border border-white/10 bg-white/[0.03] text-gray-400'
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className={eyebrow}>Chapter {i + 1}</div>
+                      {badge && (
+                        <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badgeCls}`}>
+                          {badge.text}
+                        </span>
+                      )}
                     </div>
-                    <h2 className="text-xl font-semibold">{chapter.title}</h2>
+                    <h2 className="text-xl font-semibold tracking-tight">{chapter.title}</h2>
                   </div>
-                  {badge && (
-                    <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badgeCls}`}>
-                      {badge.text}
-                    </span>
-                  )}
                 </div>
                 {chapter.learning_objectives?.length ? (() => {
                   // Keep cards short: show the first 2 outcomes; the rest are one
@@ -571,9 +602,9 @@ export default function CoursePage({
                         })}
                       </span>
                     </div>
-                    <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                    <div className={progressTrack}>
                       <div
-                        className="h-full bg-blue-500"
+                        className={progressFill}
                         style={{ width: `${chapterProgress.completionPercent}%` }}
                       />
                     </div>
@@ -595,8 +626,9 @@ export default function CoursePage({
                 {quizState === 'GENERATING' && (
                   <button
                     disabled
-                    className="inline-block rounded-lg bg-gray-700 px-4 py-2 text-gray-300 cursor-not-allowed"
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-gray-400 cursor-not-allowed"
                   >
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
                     Generating quiz…
                   </button>
                 )}
@@ -604,7 +636,7 @@ export default function CoursePage({
                 {quizState === 'FAILED' && (
                   <button
                     onClick={() => handleRetryQuiz(chapter.id)}
-                    className="inline-block rounded-lg bg-red-500 px-4 py-2 text-white"
+                    className="inline-flex items-center justify-center rounded-xl bg-red-500 px-4 py-2 font-medium text-white transition hover:bg-red-400"
                   >
                     Retry quiz
                   </button>
@@ -613,7 +645,7 @@ export default function CoursePage({
                 {quizState === 'NOT_STARTED' && (
                   <button
                     onClick={() => handleRetryQuiz(chapter.id)}
-                    className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
+                    className={`${secondaryButtonClass} px-4 py-2`}
                   >
                     Generate quiz
                   </button>

@@ -4,8 +4,17 @@ import { use, useEffect, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
+import { McqChoices } from '@/components/McqChoices';
 import { extractKeyTerms } from '@/lib/highlightTerms';
 import { FOCUS_EYEBROW, FOCUS_CONTEXT } from '@/lib/learnerCopy';
+import {
+  pageShell,
+  readingContainer,
+  elevatedCard,
+  eyebrow,
+  ghostLink,
+  primaryButtonClass,
+} from '@/lib/ui';
 
 export default function FocusPracticePage({
   params,
@@ -100,10 +109,10 @@ export default function FocusPracticePage({
 
   if (preparing) {
     return (
-      <main className="min-h-screen bg-gray-950 text-white p-8">
-        <div className="max-w-3xl mx-auto space-y-4">
-          <a href={`/courses/${courseId}`} className="text-blue-400">← Back to course</a>
-          <div className="rounded-xl border border-yellow-800 bg-yellow-950/30 p-6 text-yellow-200">
+      <main className={pageShell}>
+        <div className={`${readingContainer} space-y-4`}>
+          <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
+          <div className="rounded-2xl border border-blue-500/30 bg-blue-950/25 p-6 text-blue-100">
             Preparing your practice… this will be ready in a moment.
           </div>
         </div>
@@ -112,15 +121,19 @@ export default function FocusPracticePage({
   }
 
   if (loading) {
-    return <main className="min-h-screen bg-gray-950 text-white p-8">Loading practice…</main>;
+    return (
+      <main className={`${pageShell} p-8`}>
+        <p className="text-gray-400">Loading practice…</p>
+      </main>
+    );
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-gray-950 text-white p-8">
-        <div className="max-w-3xl mx-auto space-y-4">
-          <a href={`/courses/${courseId}`} className="text-blue-400">← Back to course</a>
-          <div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">{error}</div>
+      <main className={pageShell}>
+        <div className={`${readingContainer} space-y-4`}>
+          <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
+          <div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">{error}</div>
         </div>
       </main>
     );
@@ -128,11 +141,11 @@ export default function FocusPracticePage({
 
   if (showSummary) {
     return (
-      <main className="min-h-screen bg-gray-950 text-white p-8">
-        <div className="max-w-3xl mx-auto space-y-6">
-          <a href={`/courses/${courseId}`} className="text-blue-400">← Back to course</a>
-          <div className="rounded-xl border border-green-700 bg-green-950 p-6 space-y-2">
-            <div className="text-2xl font-bold">Practice complete 🎉</div>
+      <main className={pageShell}>
+        <div className={`${readingContainer} space-y-6`}>
+          <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
+          <div className="rounded-2xl border border-green-500/30 bg-green-950/25 p-8 space-y-2 text-center">
+            <div className="text-2xl font-bold tracking-tight">Practice complete 🎉</div>
             {mastery && (
               <p className="text-gray-200">
                 Mastery for <span className="font-semibold">{conceptName}</span>: {mastery.masteryScore}%{' '}
@@ -149,7 +162,11 @@ export default function FocusPracticePage({
   }
 
   if (!question) {
-    return <main className="min-h-screen bg-gray-950 text-white p-8">No questions.</main>;
+    return (
+      <main className={`${pageShell} p-8`}>
+        <p className="text-gray-400">No questions.</p>
+      </main>
+    );
   }
 
   // Highlight terms mined from the visible question/choices/feedback + tags.
@@ -166,48 +183,41 @@ export default function FocusPracticePage({
   });
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <a href={`/courses/${courseId}`} className="text-blue-400">← Back to course</a>
+    <main className={pageShell}>
+      <div className={`${readingContainer} space-y-6`}>
+        <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
 
-        <div>
-          <div className="text-sm text-yellow-300">{FOCUS_EYEBROW}</div>
-          <h1 className="text-3xl font-bold">{title}</h1>
+        <div className="space-y-1">
+          <div className={`${eyebrow} text-yellow-300`}>{FOCUS_EYEBROW}</div>
+          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
           <p className="text-sm text-gray-400">{FOCUS_CONTEXT}</p>
-          <p className="text-gray-400">Question {index + 1} / {questions.length}</p>
+          <p className="pt-1 text-sm text-gray-500">Question {index + 1} of {questions.length}</p>
         </div>
 
-        <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+        <section className={`${elevatedCard} p-6 space-y-5 sm:p-7`}>
           {question.question.length > 180 ? (
             <ScannableText
               text={question.question}
               keyTerms={focusKeyTerms}
-              className="text-xl font-semibold"
+              className="text-xl font-semibold leading-relaxed"
             />
           ) : (
-            <h2 className="text-xl font-semibold">{question.question}</h2>
+            <h2 className="text-xl font-semibold leading-relaxed">{question.question}</h2>
           )}
 
           {question.type === 'mcq' && question.choices?.length ? (
-            <div className="space-y-2">
-              {question.choices.map((choice: string) => (
-                <button
-                  key={choice}
-                  disabled={submitting || !!feedback}
-                  className={`block w-full text-left rounded-lg border px-4 py-3 disabled:cursor-not-allowed ${
-                    answer === choice ? 'border-blue-500 bg-blue-950' : 'border-gray-700 bg-gray-950'
-                  }`}
-                  onClick={() => setAnswer(choice)}
-                >
-                  <ScannableText inline text={choice} keyTerms={focusKeyTerms} />
-                </button>
-              ))}
-            </div>
+            <McqChoices
+              choices={question.choices}
+              selected={answer}
+              onSelect={setAnswer}
+              disabled={submitting || !!feedback}
+              keyTerms={focusKeyTerms}
+            />
           ) : (
             <textarea
-              className="w-full rounded-lg bg-gray-950 border border-gray-700 px-4 py-3 disabled:opacity-60"
+              className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition placeholder:text-gray-500 focus:border-blue-500/50 focus:outline-none disabled:opacity-60"
               rows={4}
-              placeholder="Write your answer..."
+              placeholder="Write your answer…"
               value={answer}
               disabled={submitting || !!feedback}
               onChange={(e) => setAnswer(e.target.value)}
@@ -216,7 +226,7 @@ export default function FocusPracticePage({
 
           {!feedback && (
             <button
-              className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
+              className={`${primaryButtonClass} px-6 py-3`}
               onClick={handleSubmit}
               disabled={!answer || submitting}
             >
@@ -225,10 +235,10 @@ export default function FocusPracticePage({
           )}
 
           {feedback && (
-            <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3">
+            <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
               {feedback.type === 'rubric' ? (
                 <>
-                  <div className={feedback.passed ? 'text-green-400' : 'text-yellow-300'}>
+                  <div className={`font-medium ${feedback.passed ? 'text-green-400' : 'text-yellow-300'}`}>
                     Score {feedback.score}/100 — {feedback.passed ? 'Passed' : 'Keep practicing'}
                   </div>
                   {feedback.strengths?.length > 0 && (
@@ -263,7 +273,7 @@ export default function FocusPracticePage({
                 </>
               ) : (
                 <>
-                  <div className={feedback.correct ? 'text-green-400' : 'text-red-400'}>
+                  <div className={`font-medium ${feedback.correct ? 'text-green-400' : 'text-red-400'}`}>
                     {feedback.correct ? 'Correct' : 'Not quite'}
                   </div>
                   <ScannableText
@@ -275,7 +285,7 @@ export default function FocusPracticePage({
                   {!feedback.correct && feedback.ideal_answer && (
                     <div>
                       <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Ideal answer
+                        Model answer
                       </div>
                       <ScannableText
                         text={feedback.ideal_answer}
@@ -287,7 +297,7 @@ export default function FocusPracticePage({
                   )}
                 </>
               )}
-              <button className="rounded-lg bg-blue-500 px-5 py-3 text-white" onClick={handleNext}>
+              <button className={`${primaryButtonClass} px-6 py-3`} onClick={handleNext}>
                 {index + 1 >= questions.length ? 'Finish' : 'Next question'}
               </button>
             </div>

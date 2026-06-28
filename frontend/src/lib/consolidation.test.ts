@@ -64,12 +64,13 @@ for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPa
   assert.ok(/renderClozeText\(/.test(src), `${name} renders cloze blanks`);
 }
 
-// --- flashcard quality + readable back presentation (Task 14) ----------------
+// --- structured flashcard back + rating prompt (Tasks 14–15) -----------------
 const flashcardBack = read('components/FlashcardBack.tsx');
 for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
   // A clear rating prompt appears before Again/Hard/Good/Easy.
   assert.ok(/FLASHCARD_RATING_PROMPT/.test(src), `${name} shows the flashcard rating prompt`);
-  // Both review surfaces render the one shared, readable back component.
+  // Both review surfaces render the one shared, readable back component (the
+  // chosen helper that wraps parseFlashcardBack).
   assert.ok(/FlashcardBack/.test(src), `${name} renders the shared FlashcardBack`);
   // The raw source quote / misconception are no longer dumped inline as answer.
   assert.ok(!/back\.sourceQuote &&/.test(src), `${name} no longer renders the source quote inline`);
@@ -77,13 +78,37 @@ for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPa
     !/Watch out: \{back\.misconceptionTarget\}/.test(src),
     `${name} no longer renders the misconception inline`,
   );
+  // RatingButtons is still the rating control — behavior is not bypassed.
+  assert.ok(/RatingButtons/.test(src), `${name} still drives ratings through RatingButtons`);
 }
-// The shared back: source quote tucked behind a "Source note" disclosure (never
-// the main answer), readable sections, and cloze still protected.
-assert.ok(/SOURCE_NOTE_LABEL/.test(flashcardBack), 'source quote is behind a "Source note" disclosure');
-assert.ok(/showSource/.test(flashcardBack), 'the source note is collapsed by default');
-assert.ok(/flashcardBackSections\(/.test(flashcardBack), 'back is split into readable sections');
+// --- calmer review framing + concise feedback (Task 17) ---------------------
+for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
+  // Loud uppercase "Flashcard · <concept>" header replaced by a calm eyebrow.
+  assert.ok(!/Flashcard · /.test(src), `${name} drops the loud "Flashcard ·" header`);
+  assert.ok(/FLASHCARD_REVIEW_EYEBROW/.test(src), `${name} uses the calm "Review" eyebrow`);
+  // Post-rating reads as progress, not a debug log.
+  assert.ok(/FLASHCARD_SAVED_LABEL/.test(src), `${name} shows "Saved for review" after rating`);
+  // Frontend copy never forces "According to the video/source material".
+  assert.ok(!/According to the (video|source)/i.test(src), `${name} has no "According to…" copy`);
+}
+// Quiz feedback leads with a concise takeaway that doesn't repeat the verdict.
+assert.ok(/feedbackTakeaway\(/.test(sessionPage), 'feedback derives a verdict-free takeaway');
+assert.ok(/Takeaway/.test(sessionPage), 'feedback shows a "Takeaway" first');
+assert.ok(/Show details/.test(sessionPage), 'long feedback detail is behind "Show details"');
+assert.ok(
+  /Model answer[\s\S]{0,160}<\/summary>|<summary[\s\S]{0,80}Model answer/.test(sessionPage),
+  'the model answer is collapsed in a <details> disclosure',
+);
+
+// The shared back parses into labeled sections and protects cloze.
+assert.ok(/parseFlashcardBack\(/.test(flashcardBack), 'back is parsed into labeled sections');
 assert.ok(/renderClozeText\(/.test(flashcardBack), 'flashcard back renders cloze blanks as "_____"');
+// Section + source labels come from the shared copy constants.
+assert.ok(/FLASHCARD_ANSWER_LABEL/.test(flashcardBack), 'uses the Answer label');
+assert.ok(/FLASHCARD_WATCH_OUT_LABEL/.test(flashcardBack), 'uses the Watch out label');
+// The source note is tucked behind a subtle <details> disclosure, not inline.
+assert.ok(/FLASHCARD_SOURCE_NOTE_LABEL/.test(flashcardBack), 'uses the "Source note" label');
+assert.ok(/<details/.test(flashcardBack) && /<summary/.test(flashcardBack), 'source note uses a <details> disclosure');
 // Malformed answers keep their defensive "skip this card" guard.
 assert.ok(/back\.malformed/.test(flashcardBack), 'malformed-answer guard is preserved');
 
@@ -168,7 +193,7 @@ assert.ok(
 
 // --- READY course card opens the course page, not a session -----------------
 const card = read('components/CourseCard.tsx');
-assert.ok(/START_COURSE_LABEL/.test(card), 'READY card uses the "Start course" label');
+assert.ok(/courseCardView\(/.test(card), 'READY card CTA/status comes from the shared course-card view');
 assert.ok(!/sessionHref/.test(card), 'card no longer links straight into a session');
 
 // --- home page is a command center, not a generator dashboard (Task 8) ------
@@ -187,6 +212,22 @@ for (const bad of ['adaptive AI course', "Today's Goal", 'Start Session', 'My Co
   assert.ok(!home.includes(bad), `home page still contains "${bad}"`);
 }
 
+// --- demo polish: state-aware cards + learner-facing plan (Task 18) ----------
+// Course card CTA/status adapts to progress ("Continue" vs "Start course").
+assert.ok(/courseCardView\(/.test(card), 'course card CTA/status is state-aware');
+assert.ok(/progress=\{progressByCourse/.test(home), 'home feeds per-course progress to its cards');
+// Plan breakdown reads as learner-facing "practice items" and hides 0-task rows.
+assert.ok(/WHATS_INCLUDED_LABEL/.test(home), 'breakdown uses "What\'s included today"');
+assert.ok(/practiceItemsLabel\(/.test(home), 'breakdown rows read as "N practice items"');
+assert.ok(/visibleBreakdownCourses\(/.test(home), 'breakdown hides 0-task courses');
+assert.ok(!/task\{co\.taskCount === 1/.test(home), 'breakdown no longer shows raw "N task(s)"');
+// Add-material is a premium "create" card.
+assert.ok(/CREATE_NEW_PATH_HEADING/.test(home), 'add-material reads "Create a new learning path"');
+assert.ok(!/>Add new material</.test(home), 'no leftover "Add new material" eyebrow');
+// Course-page review metric is reframed via the shared (renamed) label.
+assert.ok(/METRIC_READY_TO_REVIEW_LABEL/.test(course), 'course page uses the shared review-cards label');
+assert.ok(!/Ready to review/.test(course) && !/Ready to review/.test(home), 'no raw "Ready to review" literal remains');
+
 // --- signed-out first touch is branded (Task 10) ----------------------------
 const signIn = read('app/sign-in/[[...sign-in]]/page.tsx');
 assert.ok(/HOME_HERO_HEADLINE/.test(signIn) && /HOME_VALUE_PROP/.test(signIn), 'sign-in reuses the home value prop (no duplicated copy)');
@@ -202,5 +243,33 @@ assert.ok(/guided learning path/i.test(layout), 'layout metadata uses guided-lea
 const flashcards = read('app/flashcards/page.tsx');
 assert.ok(/RatingButtons/.test(flashcards), 'flashcards use the shared rating control');
 assert.ok(!/const RATINGS/.test(flashcards), 'flashcards no longer define their own RATINGS');
+
+// --- shared premium visual language applied across screens (Task 16) ---------
+// Every screen pulls the page background/gradient from the one shared shell.
+for (const [name, src] of [
+  ['home', home],
+  ['session', session],
+  ['course', course],
+  ['flashcards', flashcards],
+  ['focus', focus],
+] as const) {
+  assert.ok(/pageShell/.test(src), `${name} uses the shared page shell`);
+}
+// Key CTA surfaces pull the primary button from the one shared visual language.
+for (const [name, src] of [
+  ['home', home],
+  ['session', session],
+  ['course', course],
+  ['card', card],
+] as const) {
+  assert.ok(/primaryButtonClass/.test(src), `${name} uses the shared primary button`);
+}
+// Session + focus question cards share the same elevated card language.
+assert.ok(
+  /elevatedCard/.test(session) && /elevatedCard/.test(focus),
+  'session + focus use the shared question card',
+);
+// Course cards stay scannable + never expose the raw source URL.
+assert.ok(!/sourceUrl/.test(card), 'course card never renders the raw source URL');
 
 console.log('consolidation.test.ts OK');

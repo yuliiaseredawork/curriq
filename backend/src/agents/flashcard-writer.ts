@@ -64,12 +64,24 @@ ${mistakes ? `<observed_mistakes>\n${mistakes}\n</observed_mistakes>\n` : ''}
 </atomicity>
 
 <front>
-- Short, concrete, and answerable from memory — ONE question only.
-- Prefer prompts like: "What should you do next?", "What is the trap?",
-  "Why is this reasoning flawed?", "Which trade-off matters here?".
-- BAN vague fronts with no clear recall target: "What is the likely
-  consequence?", "Explain this topic.", "What should you know about X?",
-  "Describe X.".
+- Short (ideally 1–2 sentences), concrete, and answerable from memory — ONE
+  question only. Test decision-making, trade-offs, mental models, or common
+  mistakes — not rote recall.
+- PREFER applied review prompts like:
+  * "A candidate says X — what is the flaw?"
+  * "You are designing X — what should happen, and why?"
+  * "Why does X behave this way?"
+  * "When would you choose A over B?"
+  * "What mistake should you avoid when …?"
+- BAN these weak fronts:
+  * "True or False: …" — only allowed if it targets a genuine, named
+    misconception AND ruling it out needs real understanding.
+  * "According to the video/source material, …" — never reference the source.
+  * vague prompts with no recall target: "What is the likely consequence?",
+    "Explain this topic.", "What should you know about X?", "Describe X.".
+  * generic definitions ("What is X?") unless the term is foundational AND the
+    answer is not obvious.
+  * anything answerable by common sense alone, without the source material.
 </front>
 
 <back>
@@ -85,14 +97,18 @@ Use a MIX of these types where the material supports them:
 - scenario: front a "you're doing X — what next?" situation / structured back
 - misconception: front a common wrong belief / back the correction (+ set misconceptionTarget)
 - comparison: front "A vs B: which fits here and why?" / back the trade-off
-- cloze: front a sentence with {{blank}} (blanks belong ONLY in the front) / back the missing words
-- definition: only when a term is genuinely load-bearing — not trivia
+- cloze: a sentence with {{blank}} in the FRONT only — use SPARINGLY, and only
+  when the missing term is genuinely important and non-obvious (never an obvious
+  fill-in-the-blank) / back the missing words
+- definition: only when a term is foundational AND the answer is not obvious — not trivia
 </card_types>
 
 <interview_prep>
-- For system design, interview prep, or technical content, PREFER scenario,
-  misconception, and comparison cards that improve real performance.
-- Avoid trivial definition/acronym cards.
+- For system design / interview-prep content, cards test DECISION-MAKING,
+  trade-offs, mental models, or common mistakes — what a strong candidate gets right.
+- For technical docs / tutorials, cards test BEHAVIOR, configuration consequences,
+  debugging, or implementation choices.
+- Avoid trivial definition/acronym cards and anything answerable by common sense.
 </interview_prep>
 
 <examples>
@@ -103,6 +119,11 @@ GOOD back:
 Why it matters: It leaves time for architecture, scaling, and trade-offs.
 Watch out: Being thorough on requirements is not the same as showing design depth."
 
+GOOD front: "A candidate adds a cache in front of the database but keeps writing
+only to the DB. What breaks?"  (applied — tests a real mistake)
+
+BAD front: "True or False: caching can improve read performance."  (trivially true)
+BAD front: "According to the source material, what is a consumer group?"  (references the source; rote)
 BAD front: "What is the likely consequence?"  (vague — no clear recall target)
 BAD back: one long paragraph restating a transcript sentence with a quote pasted in.
 </examples>
@@ -177,6 +198,22 @@ export function flashcardQualityIssues(card: {
   // More than one "?" in the front signals two questions crammed into one card.
   if ((front.match(/\?/g) ?? []).length > 1) issues.push('front asks more than one question');
 
+  // Weak/simplistic shapes that read like school trivia rather than applied review.
+  if (/^\s*true or false\b/i.test(front)) issues.push(`"True or False" front: "${front}"`);
+  if (/^\s*according to\b/i.test(front)) issues.push(`"According to…" front references the source: "${front}"`);
+  // Generic definition-only card: a short "what is/are X?" with no applied angle
+  // (the "?" count guard above already excludes multi-part prompts).
+  if (card.type === 'definition' && /^\s*what (is|are)\b/i.test(front) && front.length <= 80) {
+    issues.push(`generic definition-only front: "${front}"`);
+  }
+  // Obvious fill-in-the-blank: a cloze whose answer is a single trivial token.
+  if (card.type === 'cloze' && BLANK_RE.test(front)) {
+    const ans = back.replace(/^answer:\s*/i, '').trim();
+    if (ans && ans.split(/\s+/).length <= 1 && ans.length <= 3) {
+      issues.push(`obvious fill-in-the-blank (answer "${ans}")`);
+    }
+  }
+
   // A source quote belongs in sourceQuote; if it's pasted in and dominates the
   // back, the "answer" is really just a transcript snippet.
   const quote = (card.sourceQuote ?? '').trim();
@@ -200,10 +237,12 @@ export function flashcardCorrectiveFeedback(issues: string[]): string {
     'Your previous flashcards had quality problems. Fix them and regenerate:',
     ...issues.map((i) => `- ${i}`),
     '',
-    'Make every front ONE short, concrete recall target (no vague "what is the',
-    'likely consequence?"). Keep each back concise and structured (Answer / Why',
-    'it matters / Watch out), not a paragraph. Put any verbatim source text in',
-    'sourceQuote, and keep {{blank}} only in a cloze front.',
+    'Make every front an APPLIED prompt that tests decision-making, trade-offs,',
+    'or a common mistake — not "True or False", not "According to the source",',
+    'not a generic definition, and not something answerable by common sense.',
+    'Keep each back concise and structured (Answer / Why it matters / Watch out),',
+    'not a paragraph. Put any verbatim source text in sourceQuote, and use',
+    '{{blank}} only when the missing term is genuinely important and non-obvious.',
   ].join('\n');
 }
 

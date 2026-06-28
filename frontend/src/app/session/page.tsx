@@ -20,8 +20,20 @@ import {
   renderClozeText,
   primaryButtonClass,
   FLASHCARD_RATING_PROMPT,
+  FLASHCARD_REVIEW_EYEBROW,
+  FLASHCARD_SAVED_LABEL,
+  feedbackTakeaway,
 } from '@/lib/learnerCopy';
 import { parseSessionScope } from '@/lib/sessionScope';
+import {
+  pageShell,
+  readingContainer,
+  elevatedCard,
+  eyebrow,
+  ghostLink,
+  progressTrack,
+  progressFill,
+} from '@/lib/ui';
 
 function SessionInner() {
   const { getToken, isLoaded } = useAuth();
@@ -137,16 +149,16 @@ function SessionInner() {
   }
 
   const Shell = ({ children }: { children: React.ReactNode }) => (
-    <main className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <a href="/" className="text-blue-400">← Home</a>
+    <main className={pageShell}>
+      <div className={`${readingContainer} space-y-6`}>
+        <a href="/" className={ghostLink}>← Home</a>
         {children}
       </div>
     </main>
   );
 
   if (loading) return <Shell><p className="text-gray-300">Loading your session…</p></Shell>;
-  if (error) return <Shell><div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">{error}</div></Shell>;
+  if (error) return <Shell><div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">{error}</div></Shell>;
 
   // Empty session (no current task): distinguish completion vs. a still-
   // preparing new course vs. genuinely nothing due.
@@ -162,14 +174,14 @@ function SessionInner() {
     return (
       <Shell>
         <div
-          className={`rounded-xl border p-6 space-y-2 ${
-            preparing ? 'border-blue-800 bg-blue-950/40' : 'border-green-700 bg-green-950'
+          className={`rounded-2xl border p-8 space-y-2 text-center ${
+            preparing ? 'border-blue-500/30 bg-blue-950/30' : 'border-green-500/30 bg-green-950/25'
           }`}
         >
-          <div className="text-2xl font-bold">{empty.title}</div>
-          <p className="text-gray-200">{empty.body}</p>
+          <div className="text-2xl font-bold tracking-tight">{empty.title}</div>
+          <p className="text-gray-300">{empty.body}</p>
           {backHref && (
-            <a href={backHref} className="inline-block text-blue-300">
+            <a href={backHref} className="inline-block pt-1 text-sm text-blue-300 hover:text-blue-200">
               ← Back to course
             </a>
           )}
@@ -187,15 +199,19 @@ function SessionInner() {
 
   return (
     <Shell>
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-blue-300">
-          {sessionProgressLabel(index, tasks.length)} · {task.courseTitle}
-        </span>
-      </div>
-
-      {/* progress bar across the session */}
-      <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
-        <div className="h-full bg-blue-500" style={{ width: `${Math.round((index / tasks.length) * 100)}%` }} />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium text-gray-300">
+            {sessionProgressLabel(index, tasks.length)}
+          </span>
+          <span className="ml-3 truncate text-gray-500">{task.courseTitle}</span>
+        </div>
+        <div className={progressTrack}>
+          <div
+            className={progressFill}
+            style={{ width: `${Math.round((index / tasks.length) * 100)}%` }}
+          />
+        </div>
       </div>
 
       {task.kind === 'flashcard'
@@ -209,30 +225,45 @@ function SessionInner() {
     const keyTerms = extractKeyTerms({ text: [task.front, back?.back], explicit: [task.concept] });
     return (
       <>
-        <div className="text-sm text-purple-300">{task.concept}</div>
-        <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4 min-h-[180px]">
-          <ScannableText text={renderClozeText(task.front)} keyTerms={keyTerms} className="text-lg font-medium" />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`${eyebrow} text-purple-300`}>{FLASHCARD_REVIEW_EYEBROW}</span>
+          {task.concept && (
+            <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-xs text-gray-400">
+              {task.concept}
+            </span>
+          )}
+        </div>
+        <section className={`${elevatedCard} flex min-h-[200px] flex-col justify-center gap-4 p-6 sm:p-7`}>
+          <ScannableText
+            text={renderClozeText(task.front)}
+            keyTerms={keyTerms}
+            className="text-xl font-medium leading-relaxed"
+          />
           {back && (
-            <div className="border-t border-gray-800 pt-4">
+            <div className="border-t border-white/10 pt-4">
               <FlashcardBack back={back} concept={task.concept} />
             </div>
           )}
         </section>
 
         {!back ? (
-          <button className="w-full rounded-lg bg-white text-black px-5 py-3 font-medium" onClick={handleReveal}>
+          <button
+            className="w-full rounded-xl bg-white px-5 py-3.5 font-medium text-black transition hover:bg-gray-100"
+            onClick={handleReveal}
+          >
             Show answer
           </button>
         ) : rated ? (
-          <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3 text-center">
-            <p className="text-gray-300">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
-            <button className={`${primaryButtonClass} px-5 py-3`} onClick={advance}>
+          <div className="rounded-2xl border border-green-500/25 bg-green-950/20 p-5 text-center space-y-3">
+            <div className="text-sm font-medium text-green-300">{FLASHCARD_SAVED_LABEL} ✓</div>
+            <p className="text-sm text-gray-400">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
+            <button className={`${primaryButtonClass} px-6 py-3`} onClick={advance}>
               {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
             </button>
           </div>
         ) : (
-          <div className="space-y-2">
-            <p className="text-center text-sm text-gray-400">{FLASHCARD_RATING_PROMPT}</p>
+          <div className="space-y-2.5">
+            <p className="text-center text-sm font-medium text-gray-300">{FLASHCARD_RATING_PROMPT}</p>
             <RatingButtons onRate={handleRate} disabled={busy} />
           </div>
         )}
@@ -247,21 +278,21 @@ function SessionInner() {
     return (
       <>
         <div>
-          <div className="text-sm text-blue-300">{questionEyebrow(task)}</div>
-          <h1 className="text-2xl font-bold">{questionHeading(task)}</h1>
+          <div className={`${eyebrow} text-blue-300`}>{questionEyebrow(task)}</div>
+          <h1 className="text-2xl font-bold tracking-tight">{questionHeading(task)}</h1>
           {context && <p className="mt-1 text-sm text-gray-400">{context}</p>}
         </div>
 
-        <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
+        <section className={`${elevatedCard} p-6 space-y-5 sm:p-7`}>
           {focus && (
-            <span className="inline-block rounded-full border border-gray-700 px-3 py-0.5 text-xs text-gray-400">
+            <span className="inline-block rounded-full border border-white/10 bg-white/[0.03] px-3 py-0.5 text-xs text-gray-400">
               Focus: {focus}
             </span>
           )}
           {q.question.length > 180 ? (
-            <ScannableText text={q.question} keyTerms={keyTermsForQuestion} className="text-xl font-semibold" />
+            <ScannableText text={q.question} keyTerms={keyTermsForQuestion} className="text-xl font-semibold leading-relaxed" />
           ) : (
-            <h2 className="text-xl font-semibold">{q.question}</h2>
+            <h2 className="text-xl font-semibold leading-relaxed">{q.question}</h2>
           )}
 
           {q.type === 'mcq' && q.choices?.length ? (
@@ -274,9 +305,9 @@ function SessionInner() {
             />
           ) : (
             <textarea
-              className="w-full rounded-lg bg-gray-950 border border-gray-700 px-4 py-3 disabled:opacity-60"
+              className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition placeholder:text-gray-500 focus:border-blue-500/50 focus:outline-none disabled:opacity-60"
               rows={4}
-              placeholder="Write your answer..."
+              placeholder="Write your answer…"
               value={answer}
               disabled={busy || !!feedback}
               onChange={(e) => setAnswer(e.target.value)}
@@ -285,7 +316,7 @@ function SessionInner() {
 
           {!feedback && (
             <button
-              className="rounded-lg bg-white text-black px-5 py-3 font-medium disabled:opacity-50"
+              className={`${primaryButtonClass} px-6 py-3`}
               onClick={handleSubmit}
               disabled={!answer || busy}
             >
@@ -293,47 +324,84 @@ function SessionInner() {
             </button>
           )}
 
-          {feedback && (
-            <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className={feedback.correct ? 'text-green-400' : 'text-yellow-300'}>{feedback.headline}</span>
-                {feedback.meta && <span className="text-xs text-gray-400">{feedback.meta}</span>}
+          {feedback && (() => {
+            // Lead with one concise takeaway; tuck the longer explanation +
+            // strengths/gaps behind "Show details" and collapse the model answer
+            // so the result never lands as a wall of text. Grading is unchanged.
+            const fullExplanation = (feedback.explanation ?? '').trim();
+            // Strip a leading "Not quite"/"Correct" so the takeaway never echoes
+            // the verdict shown right above it.
+            const takeaway = feedbackTakeaway(fullExplanation);
+            const moreThanTakeaway =
+              fullExplanation.length > 0 &&
+              (takeaway === null || fullExplanation.length > takeaway.replace(/…$/, '').length);
+            const hasDetails =
+              (feedback.strengths?.length ?? 0) > 0 ||
+              (feedback.missingConcepts?.length ?? 0) > 0 ||
+              moreThanTakeaway;
+            return (
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className={`font-medium ${feedback.correct ? 'text-green-400' : 'text-yellow-300'}`}>{feedback.headline}</span>
+                  {feedback.meta && <span className="text-xs text-gray-400">{feedback.meta}</span>}
+                </div>
+
+                {takeaway && (
+                  <div>
+                    <div className={`${eyebrow} text-gray-500`}>Takeaway</div>
+                    <p className="text-gray-200">{takeaway}</p>
+                  </div>
+                )}
+
+                {hasDetails && (
+                  <details>
+                    <summary className="cursor-pointer text-sm text-gray-400 transition hover:text-gray-200">
+                      Show details
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      {feedback.strengths?.length > 0 && (
+                        <div>
+                          <div className="text-sm font-medium text-green-400">What you got right</div>
+                          <ul className="list-disc pl-5 text-sm text-gray-300">
+                            {feedback.strengths.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {feedback.missingConcepts?.length > 0 && (
+                        <div>
+                          <div className="text-sm font-medium text-yellow-300">What you missed</div>
+                          <ul className="list-disc pl-5 text-sm text-gray-300">
+                            {feedback.missingConcepts.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {moreThanTakeaway && (
+                        <ScannableText text={fullExplanation} keyTerms={keyTermsForQuestion} className="text-sm text-gray-300" />
+                      )}
+                    </div>
+                  </details>
+                )}
+
+                {feedback.idealAnswer && (
+                  <details className="text-sm">
+                    <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Model answer
+                    </summary>
+                    <ScannableText
+                      text={feedback.idealAnswer}
+                      keyTerms={keyTermsForQuestion}
+                      clampChars={200}
+                      className="mt-1 text-sm text-gray-400"
+                    />
+                  </details>
+                )}
+
+                <button className={`${primaryButtonClass} px-6 py-3`} onClick={advance}>
+                  {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
+                </button>
               </div>
-              {feedback.strengths?.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-green-400">What you got right</div>
-                  <ul className="list-disc pl-5 text-sm text-gray-300">
-                    {feedback.strengths.map((s: string, i: number) => <li key={i}>{s}</li>)}
-                  </ul>
-                </div>
-              )}
-              {feedback.missingConcepts?.length > 0 && (
-                <div>
-                  <div className="text-sm font-medium text-yellow-300">What you missed</div>
-                  <ul className="list-disc pl-5 text-sm text-gray-300">
-                    {feedback.missingConcepts.map((s: string, i: number) => <li key={i}>{s}</li>)}
-                  </ul>
-                </div>
-              )}
-              {feedback.explanation && (
-                <ScannableText text={feedback.explanation} keyTerms={keyTermsForQuestion} className="text-gray-300" />
-              )}
-              {feedback.idealAnswer && (
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Model answer</div>
-                  <ScannableText
-                    text={feedback.idealAnswer}
-                    keyTerms={keyTermsForQuestion}
-                    clampChars={160}
-                    className="text-sm text-gray-400"
-                  />
-                </div>
-              )}
-              <button className="rounded-lg bg-blue-500 px-5 py-3 text-white" onClick={advance}>
-                {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
-              </button>
-            </div>
-          )}
+            );
+          })()}
         </section>
       </>
     );
@@ -343,7 +411,7 @@ function SessionInner() {
 // useSearchParams (scope param) must be read inside a Suspense boundary.
 export default function SessionPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-950" />}>
+    <Suspense fallback={<div className={pageShell} />}>
       <SessionInner />
     </Suspense>
   );

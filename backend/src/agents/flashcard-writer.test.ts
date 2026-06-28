@@ -23,12 +23,17 @@ process.env.ANTHROPIC_API_KEY ||= 'sk-test-not-used';
   const mustContain: [string, RegExp][] = [
     ['atomicity', /tests ONE thing/i],
     ['10–20 second answer', /10[–-]20 seconds/],
-    ['short concrete front', /Short, concrete/i],
+    ['applied review prompts', /applied review prompts/i],
+    ['front is 1–2 sentences', /1[–-]2 sentences/],
+    ['bans True or False', /BAN[\s\S]*True or False/i],
+    ['bans "According to" source references', /According to the video\/source material/i],
     ['banned vague fronts', /What is the likely\s*\n?\s*consequence\?/i],
+    ['applied good example', /A candidate[\s\S]*what is the flaw|A candidate adds a cache/i],
     ['structured concise back', /Concise and STRUCTURED/i],
     ['Answer/Why/Watch out labels', /Why it matters:/],
     ['watch out label', /Watch out:/],
-    ['interview-prep guidance', /interview prep/i],
+    ['interview-prep guidance', /interview[\s-]prep/i],
+    ['decision-making framing', /DECISION-MAKING|decision-making/],
     ['good example', /GOOD front:/],
     ['bad example', /BAD front:/],
     ['source quote not in back', /Put any verbatim source.*sourceQuote/is],
@@ -124,6 +129,49 @@ process.env.ANTHROPIC_API_KEY ||= 'sk-test-not-used';
       back: 'consumer',
     }).some((i) => /\{\{blank\}\}/.test(i)),
     'a real cloze front keeps its blank',
+  );
+
+  // --- quality helper: weak/simplistic shapes (Task 17) ---------------------
+  assert.ok(
+    flashcardQualityIssues({
+      type: 'misconception',
+      front: 'True or False: caching always improves performance.',
+      back: 'Answer: False.',
+    }).some((i) => /True or False/.test(i)),
+    'flags a "True or False" front',
+  );
+  assert.ok(
+    flashcardQualityIssues({
+      type: 'definition',
+      front: 'According to the source material, what is a consumer group?',
+      back: 'Answer: a set of consumers sharing partitions.',
+    }).some((i) => /According to/.test(i)),
+    'flags an "According to…" front',
+  );
+  assert.ok(
+    flashcardQualityIssues({
+      type: 'definition',
+      front: 'What is a broker?',
+      back: 'Answer: a server that stores messages.',
+    }).some((i) => /generic definition-only/.test(i)),
+    'flags a generic definition-only card',
+  );
+  assert.ok(
+    flashcardQualityIssues({
+      type: 'cloze',
+      front: 'A consumer group reads from a {{blank}}.',
+      back: 'Answer: log',
+    }).some((i) => /obvious fill-in-the-blank/.test(i)),
+    'flags an obvious one-token cloze answer',
+  );
+  // An applied "what is the flaw" front is NOT a generic definition.
+  assert.ok(
+    flashcardQualityIssues({
+      type: 'scenario',
+      front: 'A candidate caches reads but writes only to the DB. What breaks?',
+      back: 'Answer: the cache serves stale data.',
+    }).length === 0,
+    'an applied scenario front passes clean',
   );
 
   // --- quality helper: a good scenario card has no issues -------------------

@@ -83,6 +83,32 @@ assert.ok(!/READY/.test(readyHtml), 'READY card shows no raw status enum');
 // PDF card shows the clean source label + file name.
 assert.ok(readyHtml.includes('PDF'), 'PDF card shows the source label');
 assert.ok(readyHtml.includes('notes.pdf'), 'PDF card keeps the file name');
+// A not-started READY card reads "Learning path ready".
+assert.ok(readyHtml.includes('Learning path ready'), 'not-started READY card reads "Learning path ready"');
+
+// --- READY row WITH progress: "Continue" + a learner-facing hint ------------
+const startedHtml = renderToStaticMarkup(
+  createElement(CourseCard, {
+    course: { courseId: 'c-go', title: 'In Progress Course', status: 'READY', sourceType: 'PDF', sourceFileName: 'x.pdf' },
+    onRetry: noop,
+    progress: { completionPercent: 17 },
+  }),
+);
+assert.ok(startedHtml.includes('Continue'), 'a started course shows "Continue"');
+assert.ok(!startedHtml.includes('Start course'), 'a started course does not say "Start course"');
+assert.ok(startedHtml.includes('17% in progress'), 'shows a learner-facing progress hint');
+assert.ok(startedHtml.includes('href="/courses/c-go"'), 'still links to the course page');
+assert.ok(!/https?:\/\//.test(startedHtml), 'no raw URL even with progress');
+
+// A READY course with explicit zero progress keeps the inviting "Start course".
+const zeroProgHtml = renderToStaticMarkup(
+  createElement(CourseCard, {
+    course: { courseId: 'c-new', title: 'New Course', status: 'READY', sourceType: 'PDF' },
+    onRetry: noop,
+    progress: { completionPercent: 0, answeredQuestions: 0 },
+  }),
+);
+assert.ok(zeroProgHtml.includes('Start course'), '0% progress still invites "Start course"');
 
 // --- YouTube card shows the label, never a raw URL --------------------------
 const ytHtml = renderToStaticMarkup(

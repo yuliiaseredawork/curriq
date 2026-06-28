@@ -11,6 +11,13 @@ import {
   sessionEmptyState,
   courseHero,
   START_COURSE_LABEL,
+  courseCardView,
+  practiceItemsLabel,
+  visibleBreakdownCourses,
+  feedbackTakeaway,
+  WHATS_INCLUDED_LABEL,
+  CREATE_NEW_PATH_HEADING,
+  CREATE_NEW_PATH_HELPER,
   CHAPTER_OUTCOMES_INTRO,
   questionHeading,
   questionEyebrow,
@@ -26,12 +33,15 @@ import {
   focusListToggleLabel,
   SHOW_MORE_FOCUS_LABEL,
   flashcardRatedLine,
-  flashcardBackSections,
+  parseFlashcardBack,
+  firstSentence,
   FLASHCARD_RATING_PROMPT,
-  SOURCE_NOTE_LABEL,
-  ANSWER_LABEL,
-  WHY_LABEL,
-  WATCH_OUT_LABEL,
+  FLASHCARD_ANSWER_LABEL,
+  FLASHCARD_WHY_LABEL,
+  FLASHCARD_WATCH_OUT_LABEL,
+  FLASHCARD_SOURCE_NOTE_LABEL,
+  FLASHCARD_REVIEW_EYEBROW,
+  FLASHCARD_SAVED_LABEL,
   renderClozeText,
   FOCUS_EYEBROW,
   FOCUS_CONTEXT,
@@ -128,6 +138,64 @@ assert.strictEqual(primaryCtaLabel(true), 'Continue learning', 'in-progress → 
 // --- Course card CTA + course-page hero -------------------------------------
 assert.strictEqual(START_COURSE_LABEL, 'Start course', 'READY card opens the course hub');
 
+// --- state-aware course card view (Task 18) ---------------------------------
+const freshCard = courseCardView(undefined);
+assert.strictEqual(freshCard.started, false);
+assert.strictEqual(freshCard.ctaLabel, 'Start course', 'a new course says "Start course"');
+assert.strictEqual(freshCard.statusLine, 'Learning path ready');
+const cardNotStarted = courseCardView({ completionPercent: 0, answeredQuestions: 0 });
+assert.strictEqual(cardNotStarted.ctaLabel, 'Start course', '0% is still "Start course"');
+const cardStarted = courseCardView({ completionPercent: 17 });
+assert.strictEqual(cardStarted.started, true);
+assert.strictEqual(cardStarted.ctaLabel, 'Continue', 'a started course says "Continue"');
+assert.strictEqual(cardStarted.statusLine, '17% in progress');
+// Started via answered count even when percent rounds to 0.
+const cardByAnswers = courseCardView({ completionPercent: 0, answeredQuestions: 4, totalQuestions: 20 });
+assert.strictEqual(cardByAnswers.ctaLabel, 'Continue');
+assert.strictEqual(cardByAnswers.statusLine, '4 / 20 done');
+// No raw internal vocabulary in the status line.
+for (const v of [freshCard, cardStarted, cardByAnswers]) {
+  assert.ok(!/Mastery|Retention|IN_PROGRESS|task/.test(v.statusLine), `card status leaks: "${v.statusLine}"`);
+}
+
+// --- home plan breakdown copy + 0-task filtering ----------------------------
+assert.strictEqual(WHATS_INCLUDED_LABEL, "What's included today");
+assert.strictEqual(practiceItemsLabel(20), '20 practice items');
+assert.strictEqual(practiceItemsLabel(1), '1 practice item');
+assert.strictEqual(practiceItemsLabel(0), '0 practice items');
+// Hide 0-task rows when others have tasks…
+const breakdownMixed = visibleBreakdownCourses([
+  { courseTitle: 'A', taskCount: 20 },
+  { courseTitle: 'B', taskCount: 0 },
+  { courseTitle: 'C', taskCount: 3 },
+]);
+assert.deepStrictEqual(breakdownMixed.map((c) => c.courseTitle), ['A', 'C'], 'drops 0-task rows');
+// …but keep everything when all are 0 (never show an empty breakdown).
+const breakdownAllZero = visibleBreakdownCourses([
+  { courseTitle: 'A', taskCount: 0 },
+  { courseTitle: 'B', taskCount: 0 },
+]);
+assert.strictEqual(breakdownAllZero.length, 2, 'keeps all rows when every course is at 0');
+
+// --- add-material card copy --------------------------------------------------
+assert.strictEqual(CREATE_NEW_PATH_HEADING, 'Create a new learning path');
+assert.ok(/video.*PDF|playlist/i.test(CREATE_NEW_PATH_HELPER), 'helper mentions the accepted sources');
+
+// --- feedback takeaway: no repeated verdict ---------------------------------
+assert.strictEqual(
+  feedbackTakeaway('Not quite. Caching can serve stale data if writes skip it.'),
+  'Caching can serve stale data if writes skip it.',
+  'strips a leading "Not quite" from the takeaway',
+);
+assert.strictEqual(
+  feedbackTakeaway('Correct! Requirements should be time-boxed.'),
+  'Requirements should be time-boxed.',
+  'strips a leading "Correct"',
+);
+assert.ok(!/^not quite/i.test(feedbackTakeaway('Not quite — you missed the write path.') ?? ''), 'no leading verdict remains');
+assert.strictEqual(feedbackTakeaway(''), null);
+assert.strictEqual(feedbackTakeaway(null), null);
+
 const newHero = courseHero({ started: false, hasChapters: true });
 assert.strictEqual(newHero.title, 'Your learning path is ready');
 assert.strictEqual(newHero.ctaLabel, 'Start learning');
@@ -212,54 +280,98 @@ assert.strictEqual(renderClozeText(null), '');
 
 // --- Flashcard back presentation + rating prompt ----------------------------
 assert.strictEqual(FLASHCARD_RATING_PROMPT, 'How well did you remember this?');
-assert.strictEqual(SOURCE_NOTE_LABEL, 'Source note');
-assert.strictEqual(ANSWER_LABEL, 'Answer');
-assert.strictEqual(WHY_LABEL, 'Why it matters');
-assert.strictEqual(WATCH_OUT_LABEL, 'Watch out');
+assert.strictEqual(FLASHCARD_ANSWER_LABEL, 'Answer');
+assert.strictEqual(FLASHCARD_WHY_LABEL, 'Why it matters');
+assert.strictEqual(FLASHCARD_WATCH_OUT_LABEL, 'Watch out');
+assert.strictEqual(FLASHCARD_SOURCE_NOTE_LABEL, 'Source note');
+assert.strictEqual(FLASHCARD_REVIEW_EYEBROW, 'Review', 'calm "Review" eyebrow replaces the loud header');
+assert.strictEqual(FLASHCARD_SAVED_LABEL, 'Saved for review', 'post-rating reads as progress');
 
-// Old freeform card (no labels) → one unlabeled block, full text preserved.
-const free = flashcardBackSections(
+// firstSentence: a concise one-line takeaway from longer feedback text.
+assert.strictEqual(
+  firstSentence('Caching reduces read latency. It can also serve stale data.'),
+  'Caching reduces read latency.',
+  'takes only the first sentence',
+);
+assert.strictEqual(
+  firstSentence('A single sentence with no trailing space.'),
+  'A single sentence with no trailing space.',
+  'a lone sentence is returned whole',
+);
+assert.strictEqual(firstSentence(''), null);
+assert.strictEqual(firstSentence('   '), null);
+assert.strictEqual(firstSentence(null), null);
+assert.strictEqual(firstSentence(undefined), null);
+// An over-long single sentence is clamped with an ellipsis.
+const longTakeaway = firstSentence('x'.repeat(200) + ' more', 160);
+assert.ok(longTakeaway !== null && longTakeaway.length <= 161 && longTakeaway.endsWith('…'), 'clamps a long takeaway');
+
+// Fully labeled: "Answer / Why / Watch out" → each field, label stripped.
+const labeled = parseFlashcardBack('Answer: X\nWhy: Y\nWatch out: Z');
+assert.deepStrictEqual(labeled, {
+  answer: 'X',
+  why: 'Y',
+  watchOut: 'Z',
+  sourceNote: null,
+  fallback: null,
+});
+
+// "Why it matters" + "Source note" labels parse into the right fields.
+const withSource = parseFlashcardBack('Answer: X\nWhy it matters: Y\nSource note: S');
+assert.strictEqual(withSource.answer, 'X');
+assert.strictEqual(withSource.why, 'Y');
+assert.strictEqual(withSource.sourceNote, 'S');
+assert.strictEqual(withSource.watchOut, null);
+assert.strictEqual(withSource.fallback, null);
+
+// "Source:" (short prefix) is recognized as a source note too.
+assert.strictEqual(parseFlashcardBack('Answer: X\nSource: from the transcript').sourceNote, 'from the transcript');
+
+// Unlabeled text → safe fallback with the original text; no other field set.
+const free = parseFlashcardBack(
   'Two groups each keep independent offsets and read all partitions; one group splits them.',
 );
-assert.strictEqual(free.length, 1, 'freeform back stays a single block');
-assert.strictEqual(free[0].label, null);
-assert.ok(free[0].body.startsWith('Two groups'), 'freeform body is preserved verbatim');
+assert.strictEqual(free.answer, null);
+assert.strictEqual(free.fallback, free.fallback && free.fallback.trim());
+assert.ok(free.fallback!.startsWith('Two groups'), 'freeform text preserved in fallback');
 
-// Structured card → labeled sections, in order, with bodies stripped of labels.
-const structured = flashcardBackSections(
-  'Answer: Move on to the design — cap requirements at five minutes.\nWhy it matters: It leaves time for architecture and trade-offs.\nWatch out: Thoroughness is not the same as design depth.',
-);
-assert.deepStrictEqual(
-  structured.map((s) => s.label),
-  [ANSWER_LABEL, WHY_LABEL, WATCH_OUT_LABEL],
-  'recognizes Answer / Why it matters / Watch out labels',
-);
-assert.strictEqual(structured[0].body, 'Move on to the design — cap requirements at five minutes.');
-assert.ok(structured.some((s) => s.label === WATCH_OUT_LABEL), 'exposes a Watch out section');
-
-// Mixed: an unlabeled answer paragraph followed by a Watch out line (the good
-// example shape) → unlabeled block + a labeled trap.
-const mixed = flashcardBackSections(
+// Mixed: an unlabeled answer paragraph followed by a "Watch out" line (the good
+// example shape) → lead text becomes the answer, the trap becomes watchOut.
+const mixed = parseFlashcardBack(
   'Move on to the design and cap requirements at five minutes.\nWatch out: Being thorough is not showing design depth.',
 );
-assert.strictEqual(mixed.length, 2);
-assert.strictEqual(mixed[0].label, null);
-assert.strictEqual(mixed[1].label, WATCH_OUT_LABEL);
+assert.ok(mixed.answer!.startsWith('Move on to the design'), 'lead text becomes the answer');
+assert.strictEqual(mixed.watchOut, 'Being thorough is not showing design depth.');
+assert.strictEqual(mixed.fallback, null);
 
 // Prose that merely starts with "Why" is NOT mistaken for a label (needs colon).
-const prose = flashcardBackSections('Why this works is that offsets are tracked per partition.');
-assert.strictEqual(prose.length, 1);
-assert.strictEqual(prose[0].label, null, 'leading "Why …" without a colon is not a label');
+const prose = parseFlashcardBack('Why this works is that offsets are tracked per partition.');
+assert.strictEqual(prose.answer, null);
+assert.strictEqual(prose.fallback, 'Why this works is that offsets are tracked per partition.');
 
-// Unknown labels (e.g. "Note:") are left as plain text, never dropped.
-const note = flashcardBackSections('Note: brokers persist data to disk.');
-assert.strictEqual(note[0].label, null);
-assert.ok(note[0].body.includes('Note: brokers persist'), 'unknown label kept as text, not lost');
+// Unknown labels (e.g. "Note:") stay in the fallback text, never dropped.
+const note = parseFlashcardBack('Note: brokers persist data to disk.');
+assert.ok(note.fallback!.includes('Note: brokers persist'), 'unknown label kept as text, not lost');
+assert.strictEqual(note.answer, null);
 
-// Empty / nullish → no sections (callers render nothing).
-assert.deepStrictEqual(flashcardBackSections(''), []);
-assert.deepStrictEqual(flashcardBackSections(null), []);
-assert.deepStrictEqual(flashcardBackSections(undefined), []);
+// No content is ever dropped: every non-label word survives somewhere.
+const all = parseFlashcardBack('Answer: keep offsets\nWhy: avoids reprocessing\nWatch out: rebalances\nSource note: ch3');
+const reassembled = [all.answer, all.why, all.watchOut, all.sourceNote, all.fallback]
+  .filter(Boolean)
+  .join(' ');
+for (const word of ['keep', 'offsets', 'avoids', 'reprocessing', 'rebalances', 'ch3']) {
+  assert.ok(reassembled.includes(word), `parseFlashcardBack dropped "${word}"`);
+}
+
+// Empty / nullish → fully-null safe structure (callers render nothing).
+const emptyOut = { answer: null, why: null, watchOut: null, sourceNote: null, fallback: null };
+assert.deepStrictEqual(parseFlashcardBack(''), emptyOut);
+assert.deepStrictEqual(parseFlashcardBack('   '), emptyOut);
+assert.deepStrictEqual(parseFlashcardBack(null), emptyOut);
+assert.deepStrictEqual(parseFlashcardBack(undefined), emptyOut);
+
+// renderClozeText still turns {{blank}} into "_____" (cloze stays protected).
+assert.strictEqual(renderClozeText('Kafka tracks {{blank}} per partition'), 'Kafka tracks _____ per partition');
 
 // The rating prompt carries no internal/rating-enum vocabulary.
 for (const tok of ['AGAIN', 'HARD', 'GOOD', 'EASY', 'SM-2', 'quality']) {
@@ -279,7 +391,7 @@ assert.ok(/border/.test(secondaryButtonClass), 'secondary button is bordered/qui
 assert.strictEqual(METRIC_REMEMBERED_LABEL, 'Remembered');
 assert.strictEqual(METRIC_SOLID_LEARNING_LABEL, 'Solid / Still learning');
 assert.strictEqual(METRIC_NEEDS_LOOK_LABEL, 'Needs another look');
-assert.strictEqual(METRIC_READY_TO_REVIEW_LABEL, 'Ready to review');
+assert.strictEqual(METRIC_READY_TO_REVIEW_LABEL, 'Review cards waiting');
 assert.strictEqual(stayOnTrackLine(3), '~3 a day to stay on track');
 
 // No internal metric vocabulary in the exported learner-facing labels.

@@ -89,6 +89,50 @@ export function primaryCtaLabel(started: boolean): string {
 // does NOT jump straight into a session.
 export const START_COURSE_LABEL = 'Start course';
 
+// State-aware course-card view. A card stays calm and informative: one subtle
+// status line under the title + a CTA that invites ("Start course") or resumes
+// ("Continue"). Progress is optional — without it a READY card reads "Learning
+// path ready". Display-only; no internal metadata leaks.
+export type CourseCardView = { started: boolean; ctaLabel: string; statusLine: string };
+
+export function courseCardView(progress?: {
+  completionPercent?: number | null;
+  answeredQuestions?: number | null;
+  totalQuestions?: number | null;
+} | null): CourseCardView {
+  const pct = Math.max(0, Math.min(100, Math.round(progress?.completionPercent ?? 0)));
+  const answered = progress?.answeredQuestions ?? 0;
+  const total = progress?.totalQuestions ?? 0;
+  const started = pct > 0 || answered > 0;
+  if (!started) {
+    return { started: false, ctaLabel: START_COURSE_LABEL, statusLine: 'Learning path ready' };
+  }
+  const statusLine =
+    pct > 0 ? `${pct}% in progress` : total > 0 ? `${answered} / ${total} done` : 'In progress';
+  return { started: true, ctaLabel: 'Continue', statusLine };
+}
+
+// Home "today's plan" breakdown: learner-facing label + rows.
+export const WHATS_INCLUDED_LABEL = "What's included today";
+
+/** "20 practice items" / "1 practice item" (no internal task vocabulary). */
+export function practiceItemsLabel(count: number): string {
+  return `${count} practice item${count === 1 ? '' : 's'}`;
+}
+
+/** Hide 0-task courses from the breakdown — unless every course is at 0. */
+export function visibleBreakdownCourses<T extends { taskCount?: number | null }>(
+  courses: T[],
+): T[] {
+  const withTasks = courses.filter((c) => (c.taskCount ?? 0) > 0);
+  return withTasks.length > 0 ? withTasks : courses;
+}
+
+// "Add new material" → a premium, secondary "create" card.
+export const CREATE_NEW_PATH_HEADING = 'Create a new learning path';
+export const CREATE_NEW_PATH_HELPER =
+  'Paste a video, playlist, or PDF. Curriq turns it into chapters, practice, and review.';
+
 // Intro for a chapter's outcome bullets (rendered from the generated
 // learning_objectives), so chapters read as "what you'll be able to do" rather
 // than a generic "this chapter introduces…" summary.
@@ -248,60 +292,143 @@ export function flashcardRatedLine(rating: string, intervalDays: number): string
 }
 
 // --- Flashcard back presentation (display-only) ------------------------------
-// A revealed card back reads best as short labeled sections. Newer cards use
-// "Answer:" / "Why it matters:" / "Watch out:" lines; older freeform cards have
-// none and render as one block (unchanged). The rating prompt frames the SM-2
-// rating as one clear memory judgement before Again/Hard/Good/Easy.
+// A revealed card back reads best as short labeled sections. Newer cards may use
+// "Answer:" / "Why it matters:" / "Watch out:" / "Source note:" lines; older
+// freeform cards have none and render as one safe block. The rating prompt
+// frames the SM-2 rating as one clear memory judgement before Again/Hard/Good/Easy.
 
 export const FLASHCARD_RATING_PROMPT = 'How well did you remember this?';
-export const SOURCE_NOTE_LABEL = 'Source note';
-export const ANSWER_LABEL = 'Answer';
-export const WHY_LABEL = 'Why it matters';
-export const WATCH_OUT_LABEL = 'Watch out';
+export const FLASHCARD_ANSWER_LABEL = 'Answer';
+export const FLASHCARD_WHY_LABEL = 'Why it matters';
+export const FLASHCARD_WATCH_OUT_LABEL = 'Watch out';
+export const FLASHCARD_SOURCE_NOTE_LABEL = 'Source note';
+// Calm review framing for the flashcard front (replaces a loud uppercase
+// "FLASHCARD · <long concept>" header) + a warm post-rating confirmation.
+export const FLASHCARD_REVIEW_EYEBROW = 'Review';
+export const FLASHCARD_SAVED_LABEL = 'Saved for review';
 
-export type FlashcardSection = { label: string | null; body: string };
+/**
+ * A concise one-line takeaway from a longer feedback/explanation string: the
+ * first sentence, trimmed to ~maxLen with an ellipsis. Display-only — used to
+ * surface a short "Takeaway" before any detailed block. Returns null when empty.
+ */
+export function firstSentence(text: string | null | undefined, maxLen = 160): string | null {
+  const t = (text ?? '').trim();
+  if (!t) return null;
+  // First sentence boundary (., !, ?) followed by whitespace; else the whole text.
+  const m = t.match(/^[\s\S]*?[.!?](?=\s)/);
+  let s = (m ? m[0] : t).trim();
+  if (s.length > maxLen) s = `${s.slice(0, maxLen).replace(/\s+\S*$/, '')}…`;
+  return s || null;
+}
 
-// Leading labels recognized at the start of a back line (canonical ← matcher).
-const FLASHCARD_BACK_LABELS: Array<{ canonical: string; match: RegExp }> = [
-  { canonical: ANSWER_LABEL, match: /^answer$/i },
-  { canonical: WHY_LABEL, match: /^(why it matters|why)$/i },
-  { canonical: WATCH_OUT_LABEL, match: /^(watch[ -]?out|trap|gotcha)$/i },
+// A leading correctness verdict to strip from a takeaway so it doesn't echo the
+// "Correct"/"Not quite" headline shown right above it.
+const LEADING_VERDICT_RE =
+  /^(not quite|correct|incorrect|wrong|that's (right|wrong)|nope|yes|close)[\s,.!:;—–-]*/i;
+
+/**
+ * One concise takeaway for an answer-feedback panel: strips a leading verdict
+ * ("Not quite", "Correct", …) then returns the first sentence. Keeps the
+ * takeaway from repeating the headline. Returns null when there's nothing left.
+ */
+export function feedbackTakeaway(explanation: string | null | undefined): string | null {
+  const stripped = (explanation ?? '').trim().replace(LEADING_VERDICT_RE, '').trim();
+  return firstSentence(stripped);
+}
+
+// A flashcard back, split into the sections we know how to present. Any field
+// may be null. `fallback` holds text that has no recognized label (an entire
+// older card, or leftover that didn't fit a section) so content is NEVER lost.
+export type ParsedFlashcardBack = {
+  answer: string | null;
+  why: string | null;
+  watchOut: string | null;
+  sourceNote: string | null;
+  fallback: string | null;
+};
+
+type BackField = 'answer' | 'why' | 'watchOut' | 'sourceNote';
+
+// Recognized leading labels (each must be followed by a colon). Deliberately
+// small and literal — no fuzzy NLP — so "Why does X happen" is never mistaken
+// for a "Why" label.
+const FLASHCARD_BACK_FIELD_LABELS: Array<{ field: BackField; match: RegExp }> = [
+  { field: 'answer', match: /^answer$/i },
+  { field: 'why', match: /^(why it matters|why)$/i },
+  { field: 'watchOut', match: /^(watch[ -]?out|trap|gotcha)$/i },
+  { field: 'sourceNote', match: /^(source note|source)$/i },
 ];
 
 /**
- * Split a flashcard back into readable sections. A line beginning with a
- * recognized "Label: …" becomes a labeled section; everything else is plain
- * text, with consecutive unlabeled lines merged so an OLD freeform card stays a
- * single block and renders exactly as before. Pure and display-only — never
- * mutates stored text; cloze blanks are handled at render time.
+ * Parse a flashcard back into labeled sections, safely. Detects simple
+ * "Label: …" lines (Answer / Why / Why it matters / Watch out / Source /
+ * Source note); unrecognized or label-free text falls back to `fallback`.
+ * Leading text before the first label becomes the answer when none was labeled.
+ * Pure, display-only — never mutates stored text and never drops content.
  */
-export function flashcardBackSections(back: string | null | undefined): FlashcardSection[] {
-  const text = (back ?? '').trim();
-  if (!text) return [];
-  const out: FlashcardSection[] = [];
-  for (const rawLine of text.split(/\n+/)) {
+export function parseFlashcardBack(text: string | null | undefined): ParsedFlashcardBack {
+  const empty: ParsedFlashcardBack = {
+    answer: null,
+    why: null,
+    watchOut: null,
+    sourceNote: null,
+    fallback: null,
+  };
+  const raw = (text ?? '').trim();
+  if (!raw) return empty;
+
+  const buckets: Record<BackField, string[]> = { answer: [], why: [], watchOut: [], sourceNote: [] };
+  const preamble: string[] = [];
+  let current: BackField | null = null;
+  let sawLabel = false;
+
+  for (const rawLine of raw.split(/\n/)) {
     const line = rawLine.trim();
-    if (!line) continue;
-    let label: string | null = null;
-    let body = line;
-    // A label is a short word/phrase immediately before a colon with content
-    // after it (so prose like "Why does X happen" is never treated as a label).
-    const m = line.match(/^([A-Za-z][A-Za-z -]{1,18}?):\s*(.+)$/);
-    if (m) {
-      const found = FLASHCARD_BACK_LABELS.find((l) => l.match.test(m[1].trim()));
-      if (found) {
-        label = found.canonical;
-        body = m[2].trim();
-      }
+    if (!line) {
+      // Preserve a paragraph break inside the section we're collecting.
+      (current ? buckets[current] : preamble).push('');
+      continue;
     }
-    const prev = out[out.length - 1];
-    if (label === null && prev && prev.label === null) {
-      prev.body = `${prev.body}\n${body}`;
+    const m = line.match(/^([A-Za-z][A-Za-z -]{1,18}?):\s*(.*)$/);
+    const matched = m ? FLASHCARD_BACK_FIELD_LABELS.find((l) => l.match.test(m[1]!.trim())) : undefined;
+    if (matched) {
+      sawLabel = true;
+      current = matched.field;
+      const rest = (m![2] ?? '').trim();
+      if (rest) buckets[current].push(rest);
+    } else if (current) {
+      buckets[current].push(line);
     } else {
-      out.push({ label, body });
+      preamble.push(line);
     }
   }
-  return out;
+
+  // No recognized labels anywhere → render the original text as one safe block.
+  if (!sawLabel) return { ...empty, fallback: raw };
+
+  const join = (lines: string[]): string | null => {
+    const s = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return s || null;
+  };
+
+  let answer = join(buckets.answer);
+  let fallback: string | null = null;
+  const pre = join(preamble);
+  if (pre) {
+    // Unlabeled lead text is the answer when none was labeled; otherwise keep
+    // it as fallback so nothing is ever dropped.
+    if (!answer) answer = pre;
+    else fallback = pre;
+  }
+
+  return {
+    answer,
+    why: join(buckets.why),
+    watchOut: join(buckets.watchOut),
+    sourceNote: join(buckets.sourceNote),
+    fallback,
+  };
 }
 
 // Above-the-fold hero for the course page. Before starting, the page introduces
@@ -395,16 +522,16 @@ export const FOCUS_CONTEXT = 'Strengthen this weak spot';
 // per call site (these cover color/shape/font/disabled only) to avoid
 // conflicting Tailwind padding utilities.
 export const primaryButtonClass =
-  'inline-block rounded-lg bg-blue-500 font-medium text-white hover:bg-blue-400 disabled:opacity-50';
+  'inline-flex items-center justify-center rounded-xl bg-blue-500 font-medium text-white shadow-sm shadow-blue-900/40 transition hover:bg-blue-400 active:scale-[0.99] disabled:opacity-50 disabled:active:scale-100';
 export const secondaryButtonClass =
-  'inline-block rounded-lg border border-gray-700 font-medium text-gray-200 hover:bg-gray-800 disabled:opacity-50';
+  'inline-flex items-center justify-center rounded-xl border border-white/10 font-medium text-gray-200 transition hover:bg-white/5 disabled:opacity-50';
 
 // Learner-facing names for the course's progress metrics (display-only — the
 // underlying retention/mastery data is unchanged in code/telemetry).
 export const METRIC_REMEMBERED_LABEL = 'Remembered';
 export const METRIC_SOLID_LEARNING_LABEL = 'Solid / Still learning';
 export const METRIC_NEEDS_LOOK_LABEL = 'Needs another look';
-export const METRIC_READY_TO_REVIEW_LABEL = 'Ready to review';
+export const METRIC_READY_TO_REVIEW_LABEL = 'Review cards waiting';
 
 /** "~N a day to stay on track" — pace without exposing planner mechanics. */
 export function stayOnTrackLine(perDay: number): string {

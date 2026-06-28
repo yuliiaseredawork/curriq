@@ -10,6 +10,6 @@ export default async function ChapterRedirect({
 }: {
   params: Promise<{ courseId: string; chapterId: string }>;
 }) {
-  const { courseId } = await params;
-  redirect(sessionHref(courseId));
+  const { courseId, chapterId } = await params;
+  redirect(sessionHref(courseId, chapterId));
 }

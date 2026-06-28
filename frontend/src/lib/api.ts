@@ -67,9 +67,13 @@ export function createApiClient(getToken: GetToken) {
       return res.json();
     },
 
-    // Unified daily session: one prioritized queue + a goal summary.
-    async getSessionToday(courseId?: string) {
-      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
+    // Unified daily session: one prioritized queue + a goal summary. Optional
+    // chapterId narrows it to a single chapter's practice questions.
+    async getSessionToday(courseId?: string, chapterId?: string) {
+      const params = new URLSearchParams();
+      if (courseId) params.set('courseId', courseId);
+      if (courseId && chapterId) params.set('chapterId', chapterId);
+      const qs = params.toString() ? `?${params.toString()}` : '';
       const res = await fetch(`${API_URL}/session/today${qs}`, { headers: await h() });
       if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
       return res.json();

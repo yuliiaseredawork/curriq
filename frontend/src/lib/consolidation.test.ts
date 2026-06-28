@@ -24,7 +24,7 @@ const session = read('app/session/page.tsx');
 assert.ok(/McqChoices/.test(session), 'session uses the shared MCQ component');
 assert.ok(!/choices\.map/.test(session), 'session has no inline MCQ markup anymore');
 assert.ok(/parseSessionScope/.test(session), 'session reads the scope param');
-assert.ok(/getSessionToday\(scopeCourseId\)/.test(session), 'session passes scope to the one endpoint');
+assert.ok(/getSessionToday\(scopeCourseId, scopeChapterId\)/.test(session), 'session passes course + chapter scope to the one endpoint');
 
 // --- session question presentation is coaching copy, not raw metadata -------
 assert.ok(/questionHeading\(/.test(session), 'session uses the intentional question heading');
@@ -60,7 +60,20 @@ const flashcardsPage = read('app/flashcards/page.tsx');
 for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
   assert.ok(/flashcardRatedLine\(/.test(src), `${name} uses flashcardRatedLine`);
   assert.ok(!/Rated <span/.test(src), `${name} no raw "Rated {rating}" copy`);
+  // Cloze placeholders are rendered as learner-friendly blanks.
+  assert.ok(/renderClozeText\(/.test(src), `${name} renders cloze blanks`);
 }
+
+// --- chapter CTA is chapter-scoped (Task 11) --------------------------------
+assert.ok(/sessionHref\(courseId, chapter\.id\)/.test(course), 'chapter CTA links to a chapter-scoped session');
+const chapterRedirect = read('app/courses/[courseId]/chapters/[chapterId]/page.tsx');
+assert.ok(/sessionHref\(courseId, chapterId\)/.test(chapterRedirect), 'old chapter route redirects with chapterId');
+
+// --- focus practice drops raw metadata, uses coached copy -------------------
+const focus = read('app/courses/[courseId]/focus/[concept]/page.tsx');
+assert.ok(!/question\.difficulty/.test(focus), 'focus page no longer renders raw difficulty');
+assert.ok(!/concept_tags\?\.join/.test(focus), 'focus page no longer renders joined concept_tags');
+assert.ok(/FOCUS_EYEBROW/.test(focus) && /FOCUS_CONTEXT/.test(focus), 'focus page uses coached copy');
 
 // --- not-started course hides empty analytics; started keeps them -----------
 assert.ok(/const started = progressView\.started/.test(course), 'single started flag is computed');

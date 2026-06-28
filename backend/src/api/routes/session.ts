@@ -60,7 +60,11 @@ function fireConsolidation(courseId: string, userId: string) {
 
 // Gather the learner's due items across courses, prioritize, and shape the goal.
 // Shared by /session/today (full queue) and /session/next (just nextBestAction).
-async function computeSession(userId: string, courseIdFilter?: string) {
+// When chapterIdFilter is set, the session is scoped to a single chapter's
+// practice: only that chapter's unanswered quiz questions are returned — no
+// flashcards, no concept reviews, no other chapters. Absent, behavior is
+// unchanged (the full mixed queue).
+async function computeSession(userId: string, courseIdFilter?: string, chapterIdFilter?: string) {
     const now = new Date();
 
     const listed = await callCourseMetadata({ action: 'list', userId });
@@ -80,23 +84,28 @@ async function computeSession(userId: string, courseIdFilter?: string) {
     let totalQuestions = 0;
     let answeredQuestions = 0;
     const deadlines: any[] = [];
+    // Chapter-scope only: did the requested chapter's quiz exist with questions?
+    // Lets the UI tell "still preparing" from "you've finished this chapter".
+    let chapterReady = false;
 
     for (const co of courses) {
       const daysLeft = co.targetDate ? daysUntil(co.targetDate, now) : undefined;
 
-      // --- Due flashcards -------------------------------------------------
-      for (const card of await listCards(userId, co.courseId)) {
-        if (!isCardDue(card, now)) continue;
-        flashcards.push({
-          courseId: co.courseId,
-          courseTitle: co.title,
-          cardId: card.cardId,
-          concept: card.concept,
-          type: card.type,
-          front: card.front,
-          difficulty: card.difficulty,
-          nextReviewAt: card.nextReviewAt,
-        });
+      // --- Due flashcards (skipped for chapter-scoped sessions) -----------
+      if (!chapterIdFilter) {
+        for (const card of await listCards(userId, co.courseId)) {
+          if (!isCardDue(card, now)) continue;
+          flashcards.push({
+            courseId: co.courseId,
+            courseTitle: co.title,
+            cardId: card.cardId,
+            concept: card.concept,
+            type: card.type,
+            front: card.front,
+            difficulty: card.difficulty,
+            nextReviewAt: card.nextReviewAt,
+          });
+        }
       }
 
       // --- Due concept reviews -------------------------------------------
@@ -106,7 +115,8 @@ async function computeSession(userId: string, courseIdFilter?: string) {
       masterySum += records.reduce((s, r) => s + r.masteryScore, 0);
       reviewedConcepts += records.filter((r) => r.lastReviewedAt || r.nextReviewAt).length;
 
-      for (const r of records) {
+      // Concept reviews are skipped for chapter-scoped sessions.
+      for (const r of chapterIdFilter ? [] : records) {
         if (!isDue(r, now)) continue;
         const set = await loadRemediationSet(co.courseId, r.conceptSlug);
         if (!set || !set.questions?.length) {
@@ -141,6 +151,8 @@ async function computeSession(userId: string, courseIdFilter?: string) {
         }
         let gathered = 0;
         for (const chapter of outline.chapters) {
+          // Chapter-scoped sessions gather only the requested chapter.
+          if (chapterIdFilter && chapter.id !== chapterIdFilter) continue;
           let questions: any[] = [];
           try {
             questions = (await loadQuiz(co.courseId, chapter.id)).questions ?? [];
@@ -148,6 +160,9 @@ async function computeSession(userId: string, courseIdFilter?: string) {
             continue; // quiz not generated for this chapter yet
           }
           const answered = answeredByChapter.get(chapter.id) ?? new Set<string>();
+          if (chapterIdFilter && chapter.id === chapterIdFilter && questions.length > 0) {
+            chapterReady = true;
+          }
           totalQuestions += questions.length;
           answeredQuestions += answered.size;
           for (const q of questions) {
@@ -230,6 +245,8 @@ async function computeSession(userId: string, courseIdFilter?: string) {
         learningProgress,
         breakdown,
         byCourse,
+        // Only meaningful for chapter-scoped sessions (undefined otherwise).
+        chapterReady: chapterIdFilter ? chapterReady : undefined,
       },
       tasks,
       // The single primary action — powers the "Continue Learning" button.
@@ -241,7 +258,13 @@ async function computeSession(userId: string, courseIdFilter?: string) {
 session.get('/session/today', async (c) => {
   try {
     const userId = await getCurrentUserId(c);
-    return c.json(await computeSession(userId, c.req.query('courseId') ?? undefined));
+    return c.json(
+      await computeSession(
+        userId,
+        c.req.query('courseId') ?? undefined,
+        c.req.query('chapterId') ?? undefined,
+      ),
+    );
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
     return c.json({ error: 'SESSION_UNAVAILABLE', message: e.message }, 500);
@@ -252,7 +275,11 @@ session.get('/session/today', async (c) => {
 session.get('/session/next', async (c) => {
   try {
     const userId = await getCurrentUserId(c);
-    const { nextBestAction } = await computeSession(userId, c.req.query('courseId') ?? undefined);
+    const { nextBestAction } = await computeSession(
+      userId,
+      c.req.query('courseId') ?? undefined,
+      c.req.query('chapterId') ?? undefined,
+    );
     return c.json({ nextBestAction });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;

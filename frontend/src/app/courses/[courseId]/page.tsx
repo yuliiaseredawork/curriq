@@ -512,11 +512,12 @@ export default function CoursePage({
                   </div>
                 )}
 
-                {/* All chapter CTAs route to the same scoped session, so only
-                    the "Start here" chapter shows the prominent entry button. */}
+                {/* Chapter CTA opens a chapter-scoped session (only this
+                    chapter's questions — no flashcards/reviews). Shown on the
+                    "start here" chapter. */}
                 {quizState === 'READY' && isStartHere && (
                   <a
-                    href={sessionHref(courseId)}
+                    href={sessionHref(courseId, chapter.id)}
                     className="inline-block rounded-lg bg-blue-500 px-4 py-2 text-white"
                   >
                     {buttonLabel}

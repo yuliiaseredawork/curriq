@@ -247,14 +247,37 @@ export function courseHero(input: { started: boolean; hasChapters: boolean }): C
 //               generating; offer a way back to the course.
 //  - caught-up: an all-courses session with genuinely nothing due.
 export type SessionEmptyState =
-  | { kind: 'complete'; title: string; body: string }
+  | { kind: 'complete'; title: string; body: string; backHref?: string }
   | { kind: 'preparing'; title: string; body: string; backHref: string }
   | { kind: 'caught-up'; title: string; body: string };
 
 export function sessionEmptyState(input: {
   reviewed: number;
   scopeCourseId?: string | null;
+  scopeChapterId?: string | null;
+  chapterReady?: boolean;
 }): SessionEmptyState {
+  // Chapter-scoped session: a focused, chapter-specific message.
+  if (input.scopeChapterId && input.scopeCourseId) {
+    const backHref = `/courses/${input.scopeCourseId}`;
+    // Quiz isn't ready yet (and nothing answered this session) → "preparing".
+    if (!input.chapterReady && input.reviewed === 0) {
+      return {
+        kind: 'preparing',
+        title: 'Getting this chapter ready 🛠️',
+        body: 'Chapter practice is being prepared. Give it a moment, then reload.',
+        backHref,
+      };
+    }
+    // Questions exist but none left to do (finished now or earlier).
+    return {
+      kind: 'complete',
+      title: input.reviewed > 0 ? 'Chapter practice complete 🎉' : 'All done here 🎉',
+      body: "You've finished this chapter's practice for now.",
+      backHref,
+    };
+  }
+
   if (input.reviewed > 0) {
     const n = input.reviewed;
     return {
@@ -276,4 +299,16 @@ export function sessionEmptyState(input: {
     title: 'All caught up 🎉',
     body: 'Nothing is due right now. Check back later.',
   };
+}
+
+// Focus-practice copy (coached, mirrors the main session).
+export const FOCUS_EYEBROW = 'Focus practice';
+export const FOCUS_CONTEXT = 'Strengthen this weak spot';
+
+/**
+ * Render learner-facing blanks: replace cloze placeholders like "{{blank}}" (or
+ * any "{{ … }}") with a plain "_____". Display-only — stored data is untouched.
+ */
+export function renderClozeText(text: string | null | undefined): string {
+  return (text ?? '').replace(/\{\{\s*[^{}]*\}\}/g, '_____');
 }

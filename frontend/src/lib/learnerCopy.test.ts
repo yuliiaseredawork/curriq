@@ -20,6 +20,9 @@ import {
   chapterQuestionsLabel,
   chapterCtaLabel,
   flashcardRatedLine,
+  renderClozeText,
+  FOCUS_EYEBROW,
+  FOCUS_CONTEXT,
   homeMode,
   HOME_HERO_HEADLINE,
   HOME_VALUE_PROP,
@@ -148,6 +151,49 @@ assert.ok(/Nothing is due/.test(caughtUp.body));
 // A scoped session only flips to "preparing" before any review; once reviewed,
 // completion wins regardless of scope.
 assert.strictEqual(sessionEmptyState({ reviewed: 2, scopeCourseId: 'c-7' }).kind, 'complete');
+
+// --- Chapter-scoped empty states --------------------------------------------
+// Quiz not ready yet, nothing answered → "being prepared" + back link.
+const chPreparing = sessionEmptyState({
+  reviewed: 0,
+  scopeCourseId: 'c-7',
+  scopeChapterId: 'ch-1',
+  chapterReady: false,
+});
+assert.strictEqual(chPreparing.kind, 'preparing');
+assert.ok(/being prepared/i.test(chPreparing.body));
+assert.strictEqual((chPreparing as any).backHref, '/courses/c-7');
+// Questions exist but none left (e.g. "Review chapter" on a completed chapter).
+const chDone = sessionEmptyState({
+  reviewed: 0,
+  scopeCourseId: 'c-7',
+  scopeChapterId: 'ch-1',
+  chapterReady: true,
+});
+assert.strictEqual(chDone.kind, 'complete');
+assert.ok(/finished this chapter/i.test(chDone.body));
+assert.strictEqual((chDone as any).backHref, '/courses/c-7');
+// Finished the chapter this session → also "finished this chapter".
+const chJustDone = sessionEmptyState({ reviewed: 3, scopeCourseId: 'c-7', scopeChapterId: 'ch-1' });
+assert.strictEqual(chJustDone.kind, 'complete');
+assert.ok(/finished this chapter/i.test(chJustDone.body));
+
+// --- renderClozeText: learner-friendly blanks (stored data unchanged) -------
+assert.strictEqual(renderClozeText('Kafka uses {{blank}} offsets'), 'Kafka uses _____ offsets');
+assert.strictEqual(
+  renderClozeText('{{blank}} reads from {{blank}}'),
+  '_____ reads from _____',
+  'handles multiple blanks',
+);
+assert.strictEqual(renderClozeText('a {{ blank }} b'), 'a _____ b', 'handles spaced placeholder');
+assert.strictEqual(renderClozeText('a {{ c1 }} b'), 'a _____ b', 'handles any {{...}} token');
+assert.strictEqual(renderClozeText('no placeholder here'), 'no placeholder here', 'no-op without placeholder');
+assert.strictEqual(renderClozeText(''), '');
+assert.strictEqual(renderClozeText(null), '');
+
+// --- Focus practice copy ----------------------------------------------------
+assert.strictEqual(FOCUS_EYEBROW, 'Focus practice');
+assert.strictEqual(FOCUS_CONTEXT, 'Strengthen this weak spot');
 
 // --- Session question presentation ------------------------------------------
 // Heading: warm label for new questions, concept title for reviews.

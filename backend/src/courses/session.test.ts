@@ -145,4 +145,26 @@ assert.strictEqual(startedReason, 'Finish the chapter you started');
 const tierSafe = buildSession({ flashcards: [], concepts: [weakConcept], quiz: [startedQuiz], now });
 assert.strictEqual(tierSafe[0].kind, 'review', 'a boosted quiz never outranks a concept review');
 
+// --- Chapter-scoped session contract --------------------------------------
+// A chapter-scoped session (route gathers flashcards=[]/concepts=[] and quiz
+// filtered to one chapter) must yield ONLY that chapter's quiz tasks — no
+// flashcards, no concept reviews.
+const chapterScoped = buildSession({
+  flashcards: [overdueCard, newCard], // would normally dominate; excluded upstream
+  concepts: [atRisk], // excluded upstream
+  quiz: [startedQuiz], // the only candidates passed under chapter scope
+  now,
+});
+// Simulate the upstream filter: under chapter scope the route passes no
+// flashcards/concepts, so assert the quiz-only candidate set is quiz-only out.
+const chapterOnly = buildSession({ flashcards: [], concepts: [], quiz: [startedQuiz], now });
+assert.ok(chapterOnly.every((t) => t.kind === 'quiz'), 'chapter scope yields only quiz tasks');
+assert.ok(!chapterOnly.some((t) => t.kind === 'flashcard'), 'chapter scope excludes flashcards');
+assert.ok(!chapterOnly.some((t) => t.kind === 'review'), 'chapter scope excludes concept reviews');
+assert.strictEqual(chapterOnly.length, 1, 'only the chapter question remains');
+assert.strictEqual(chapterOnly[0].kind === 'quiz' && chapterOnly[0].questionId, 'qa');
+// Sanity: with the same candidates but NO upstream filter, flashcards lead
+// (confirms the difference comes from the upstream chapter filter, not buildSession).
+assert.strictEqual(chapterScoped[0].kind, 'flashcard', 'without the chapter filter, flashcards lead (mixed)');
+
 console.log('session.test.ts OK');

@@ -16,6 +16,7 @@ import {
   questionFocus,
   taskContextLine,
   flashcardRatedLine,
+  renderClozeText,
 } from '@/lib/learnerCopy';
 import { parseSessionScope } from '@/lib/sessionScope';
 
@@ -24,9 +25,9 @@ function SessionInner() {
   const { user, isLoaded: userLoaded } = useUser();
   const api = createApiClient(getToken);
 
-  // "All courses" vs "one course" is just a scope param on the same session.
+  // Scope params on the same session: all-courses, one course, or one chapter.
   const searchParams = useSearchParams();
-  const scopeCourseId = parseSessionScope(searchParams);
+  const { courseId: scopeCourseId, chapterId: scopeChapterId } = parseSessionScope(searchParams);
 
   const userId = user?.primaryEmailAddress?.emailAddress
     ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
@@ -52,7 +53,7 @@ function SessionInner() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.getSessionToday(scopeCourseId);
+      const res = await api.getSessionToday(scopeCourseId, scopeChapterId);
       setGoal(res.goal);
       setTasks(res.tasks ?? []);
       setIndex(0);
@@ -68,7 +69,7 @@ function SessionInner() {
     if (!isLoaded || !userLoaded) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, userLoaded, scopeCourseId]);
+  }, [isLoaded, userLoaded, scopeCourseId, scopeChapterId]);
 
   function resetTaskState() {
     setBack(null);
@@ -147,8 +148,14 @@ function SessionInner() {
   // Empty session (no current task): distinguish completion vs. a still-
   // preparing new course vs. genuinely nothing due.
   if (!task) {
-    const empty = sessionEmptyState({ reviewed, scopeCourseId });
+    const empty = sessionEmptyState({
+      reviewed,
+      scopeCourseId,
+      scopeChapterId,
+      chapterReady: goal?.chapterReady,
+    });
     const preparing = empty.kind === 'preparing';
+    const backHref = 'backHref' in empty ? empty.backHref : undefined;
     return (
       <Shell>
         <div
@@ -158,8 +165,8 @@ function SessionInner() {
         >
           <div className="text-2xl font-bold">{empty.title}</div>
           <p className="text-gray-200">{empty.body}</p>
-          {empty.kind === 'preparing' && (
-            <a href={empty.backHref} className="inline-block text-blue-300">
+          {backHref && (
+            <a href={backHref} className="inline-block text-blue-300">
               ← Back to course
             </a>
           )}
@@ -201,7 +208,7 @@ function SessionInner() {
       <>
         <div className="text-sm text-purple-300">{task.concept}</div>
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4 min-h-[180px]">
-          <ScannableText text={task.front} keyTerms={keyTerms} className="text-lg font-medium" />
+          <ScannableText text={renderClozeText(task.front)} keyTerms={keyTerms} className="text-lg font-medium" />
           {back && (
             <div className="border-t border-gray-800 pt-4 space-y-2">
               {back.malformed ? (
@@ -209,7 +216,7 @@ function SessionInner() {
                   This answer looks incomplete and is being reviewed. Please skip this card for now.
                 </p>
               ) : (
-                <ScannableText text={back.back} keyTerms={keyTerms} className="text-gray-200" />
+                <ScannableText text={renderClozeText(back.back)} keyTerms={keyTerms} className="text-gray-200" />
               )}
               {back.sourceQuote && <p className="text-xs text-gray-500 italic">“{back.sourceQuote}”</p>}
               {back.misconceptionTarget && (

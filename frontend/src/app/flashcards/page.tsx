@@ -6,7 +6,7 @@ import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { RatingButtons } from '@/components/RatingButtons';
 import { extractKeyTerms } from '@/lib/highlightTerms';
-import { flashcardRatedLine } from '@/lib/learnerCopy';
+import { flashcardRatedLine, renderClozeText } from '@/lib/learnerCopy';
 
 export default function FlashcardsPage() {
   const { getToken, isLoaded } = useAuth();
@@ -107,7 +107,7 @@ export default function FlashcardsPage() {
 
       <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4 min-h-[180px]">
         <div className="text-xs uppercase tracking-wide text-gray-500">{card.type}</div>
-        <ScannableText text={card.front} keyTerms={keyTerms} className="text-lg font-medium" />
+        <ScannableText text={renderClozeText(card.front)} keyTerms={keyTerms} className="text-lg font-medium" />
 
         {back && (
           <div className="border-t border-gray-800 pt-4 space-y-2">
@@ -116,7 +116,7 @@ export default function FlashcardsPage() {
                 This answer looks incomplete and is being reviewed. Please skip this card for now.
               </p>
             ) : (
-              <ScannableText text={back.back} keyTerms={keyTerms} className="text-gray-200" />
+              <ScannableText text={renderClozeText(back.back)} keyTerms={keyTerms} className="text-gray-200" />
             )}
             {back.sourceQuote && (
               <p className="text-xs text-gray-500 italic">“{back.sourceQuote}”</p>

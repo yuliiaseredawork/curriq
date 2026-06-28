@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/nextjs';
 import { createApiClient } from '@/lib/api';
 import { ScannableText } from '@/components/ScannableText';
 import { extractKeyTerms } from '@/lib/highlightTerms';
+import { FOCUS_EYEBROW, FOCUS_CONTEXT } from '@/lib/learnerCopy';
 
 export default function FocusPracticePage({
   params,
@@ -170,15 +171,13 @@ export default function FocusPracticePage({
         <a href={`/courses/${courseId}`} className="text-blue-400">← Back to course</a>
 
         <div>
-          <div className="text-sm text-yellow-300">Focus practice</div>
+          <div className="text-sm text-yellow-300">{FOCUS_EYEBROW}</div>
           <h1 className="text-3xl font-bold">{title}</h1>
+          <p className="text-sm text-gray-400">{FOCUS_CONTEXT}</p>
           <p className="text-gray-400">Question {index + 1} / {questions.length}</p>
         </div>
 
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
-          <div className="text-sm text-gray-400">
-            {question.difficulty} · {question.concept_tags?.join(', ')}
-          </div>
           {question.question.length > 180 ? (
             <ScannableText
               text={question.question}

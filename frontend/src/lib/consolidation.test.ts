@@ -105,6 +105,17 @@ for (const bad of ['adaptive AI course', "Today's Goal", 'Start Session', 'My Co
   assert.ok(!home.includes(bad), `home page still contains "${bad}"`);
 }
 
+// --- signed-out first touch is branded (Task 10) ----------------------------
+const signIn = read('app/sign-in/[[...sign-in]]/page.tsx');
+assert.ok(/HOME_HERO_HEADLINE/.test(signIn) && /HOME_VALUE_PROP/.test(signIn), 'sign-in reuses the home value prop (no duplicated copy)');
+assert.ok(/<SignIn\b/.test(signIn), 'sign-in still renders the Clerk SignIn widget');
+assert.ok(/Curriq/.test(signIn), 'sign-in shows the Curriq wordmark');
+
+// --- document metadata is guided-learning-path positioning ------------------
+const layout = read('app/layout.tsx');
+assert.ok(!/adaptive AI course/.test(layout), 'layout metadata drops "adaptive AI course"');
+assert.ok(/guided learning path/i.test(layout), 'layout metadata uses guided-learning-path positioning');
+
 // --- flashcards reuse the shared rating control (no duplicate RATINGS) -------
 const flashcards = read('app/flashcards/page.tsx');
 assert.ok(/RatingButtons/.test(flashcards), 'flashcards use the shared rating control');

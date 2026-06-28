@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Curriq",
-  description: "Turn a YouTube playlist into an adaptive AI course.",
+  title: "Curriq — your guided learning path",
+  description:
+    "Turn any video or PDF into a guided learning path. Curriq tells you what to study next, checks your understanding, and brings weak concepts back before you forget them.",
 };
 
 export default function RootLayout({

@@ -15,6 +15,14 @@ import {
   practiceItemsLabel,
   visibleBreakdownCourses,
   feedbackTakeaway,
+  feedbackStatusLabel,
+  feedbackEyebrow,
+  correctAnswerLabel,
+  mixUpNote,
+  truncateCoachText,
+  scrubInternalWording,
+  feedbackDetail,
+  scheduleStatusLabel,
   WHATS_INCLUDED_LABEL,
   CREATE_NEW_PATH_HEADING,
   CREATE_NEW_PATH_HELPER,
@@ -195,6 +203,95 @@ assert.strictEqual(
 assert.ok(!/^not quite/i.test(feedbackTakeaway('Not quite — you missed the write path.') ?? ''), 'no leading verdict remains');
 assert.strictEqual(feedbackTakeaway(''), null);
 assert.strictEqual(feedbackTakeaway(null), null);
+
+// --- coach feedback helpers (Task 19) ---------------------------------------
+assert.strictEqual(feedbackStatusLabel(true), 'Correct');
+assert.strictEqual(feedbackStatusLabel(false), 'Not quite');
+
+// Takeaway strips the grader's "the correct answer is "X"." boilerplate.
+assert.strictEqual(
+  feedbackTakeaway('Not quite — the correct answer is “Offsets are per partition”. Each consumer tracks its own offset.'),
+  'Each consumer tracks its own offset.',
+  'drops the "the correct answer is X" clause from the takeaway',
+);
+// When only the verdict + correct-answer boilerplate exist, there's no takeaway.
+assert.strictEqual(
+  feedbackTakeaway('Not quite. The correct answer is “Offsets are per partition”.'),
+  null,
+  'no takeaway when nothing but boilerplate remains',
+);
+
+// correctAnswerLabel: letter + text when it's a choice; text only otherwise.
+const mcqChoices = ['Offsets are global', 'Offsets are per partition', 'Offsets are random', 'No offsets'];
+assert.strictEqual(
+  correctAnswerLabel('Offsets are per partition', mcqChoices),
+  'B. Offsets are per partition',
+  'labels the correct option with its letter',
+);
+assert.strictEqual(correctAnswerLabel('Some free-text answer', null), 'Some free-text answer', 'falls back to the text');
+assert.strictEqual(correctAnswerLabel('', mcqChoices), null);
+assert.strictEqual(correctAnswerLabel(null), null);
+
+// mixUpNote: surfaces the grader's "(Common mix-up: …)".
+assert.strictEqual(
+  mixUpNote('Not quite. The correct answer is “X”. (Common mix-up: confusing offsets with partitions)'),
+  'confusing offsets with partitions',
+);
+assert.strictEqual(mixUpNote('No parenthetical here.'), null);
+assert.strictEqual(mixUpNote(null), null);
+
+// truncateCoachText: word-boundary clamp with an ellipsis; defensive on empties.
+assert.strictEqual(truncateCoachText('short text', 100), 'short text', 'short text is untouched');
+const clamped = truncateCoachText('x'.repeat(50) + ' overflow tail here', 50);
+assert.ok(clamped.length <= 51 && clamped.endsWith('…'), 'clamps long text with an ellipsis');
+assert.strictEqual(truncateCoachText('', 50), '');
+assert.strictEqual(truncateCoachText(null, 50), '');
+
+// --- scrub internal wording + non-duplicating detail (Task 20) --------------
+// "The chunk states…" and bare "chunk" never reach the learner.
+assert.strictEqual(
+  scrubInternalWording('The chunk states that offsets are per partition.'),
+  'The material states that offsets are per partition.',
+  'rewrites "the chunk states" to "the material states"',
+);
+assert.strictEqual(
+  scrubInternalWording('According to the source chunk, consumers share partitions.'),
+  'from the lesson, consumers share partitions.',
+  'rewrites "according to the source chunk"',
+);
+assert.ok(!/\bchunk\b/i.test(scrubInternalWording('Each chunk is embedded; the source chunk is stored.')), 'no bare "chunk" survives');
+assert.strictEqual(scrubInternalWording('A clean sentence with no internal terms.'), 'A clean sentence with no internal terms.', 'clean text is untouched');
+assert.strictEqual(scrubInternalWording(''), '');
+assert.strictEqual(scrubInternalWording(null), '');
+// The takeaway is scrubbed too.
+assert.ok(
+  !/chunk/i.test(feedbackTakeaway('Not quite. The chunk states caching can serve stale data.') ?? ''),
+  'takeaway never contains "chunk"',
+);
+
+// feedbackEyebrow: warmer for a correct answer.
+assert.strictEqual(feedbackEyebrow(false), 'Takeaway');
+assert.strictEqual(feedbackEyebrow(true), 'Remember this');
+
+// feedbackDetail: the explanation MINUS the takeaway first sentence (no dup).
+assert.strictEqual(
+  feedbackDetail('Caching can serve stale data. It happens when writes skip the cache.'),
+  'It happens when writes skip the cache.',
+  'detail drops the first sentence already shown as the takeaway',
+);
+assert.strictEqual(
+  feedbackDetail('Caching can serve stale data.'),
+  null,
+  'no detail when there is nothing beyond the takeaway',
+);
+assert.ok(!/chunk/i.test(feedbackDetail('The chunk states X happens. The chunk also notes Y.') ?? ''), 'detail never contains "chunk"');
+assert.strictEqual(feedbackDetail(''), null);
+assert.strictEqual(feedbackDetail(null), null);
+
+// scheduleStatusLabel: encouraging, not scolding.
+assert.strictEqual(scheduleStatusLabel(true), 'On track');
+assert.strictEqual(scheduleStatusLabel(false), 'Needs catch-up');
+assert.ok(!/behind/i.test(scheduleStatusLabel(false)), 'no scolding "Behind"');
 
 const newHero = courseHero({ started: false, hasChapters: true });
 assert.strictEqual(newHero.title, 'Your learning path is ready');
@@ -391,7 +488,7 @@ assert.ok(/border/.test(secondaryButtonClass), 'secondary button is bordered/qui
 assert.strictEqual(METRIC_REMEMBERED_LABEL, 'Remembered');
 assert.strictEqual(METRIC_SOLID_LEARNING_LABEL, 'Solid / Still learning');
 assert.strictEqual(METRIC_NEEDS_LOOK_LABEL, 'Needs another look');
-assert.strictEqual(METRIC_READY_TO_REVIEW_LABEL, 'Review cards waiting');
+assert.strictEqual(METRIC_READY_TO_REVIEW_LABEL, 'Review queue');
 assert.strictEqual(stayOnTrackLine(3), '~3 a day to stay on track');
 
 // No internal metric vocabulary in the exported learner-facing labels.

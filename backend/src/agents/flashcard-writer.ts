@@ -90,6 +90,9 @@ ${mistakes ? `<observed_mistakes>\n${mistakes}\n</observed_mistakes>\n` : ''}
     Why it matters: one short sentence of reasoning (optional).
     Watch out: the common trap or misconception (optional).
 - No long paragraphs. Do NOT paste source text into the back — use sourceQuote.
+- Write for the LEARNER. NEVER use internal words like "chunk"/"source chunk"/
+  "the chunk states…" anywhere (back, sourceQuote, misconceptionTarget); say
+  "the material says…" or describe the idea directly.
 </back>
 
 <card_types>

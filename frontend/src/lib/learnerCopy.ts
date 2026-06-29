@@ -326,15 +326,101 @@ export function firstSentence(text: string | null | undefined, maxLen = 160): st
 // "Correct"/"Not quite" headline shown right above it.
 const LEADING_VERDICT_RE =
   /^(not quite|correct|incorrect|wrong|that's (right|wrong)|nope|yes|close)[\s,.!:;—–-]*/i;
+// The grader prepends 'the correct answer is "X".' — stripped so it never
+// becomes the takeaway text (we surface the answer separately, see
+// correctAnswerLabel).
+const CORRECT_ANSWER_CLAUSE_RE =
+  /^the\s+(?:correct\s+|right\s+)?answer\s+is\s*[“"'][^“”"']*[”"']?\.?\s*/i;
+
+/** Plain status word for an answer result (centralized so it never drifts). */
+export function feedbackStatusLabel(correct: boolean): string {
+  return correct ? 'Correct' : 'Not quite';
+}
+
+/** Eyebrow above the one-line takeaway: warmer for a correct answer. */
+export function feedbackEyebrow(correct: boolean): string {
+  return correct ? 'Remember this' : 'Takeaway';
+}
+
+// Internal/backend wording that must never reach a learner. Order matters:
+// verb phrases first, then bare terms. Replacements read like a coach, not a
+// retrieval pipeline.
+const INTERNAL_WORDING_REPLACEMENTS: Array<[RegExp, string]> = [
+  // Keep the article's original case ("The chunk states" → "The material states").
+  [/\b(the)\s+(?:source\s+)?chunks?\s+(states?|says?|mentions?|notes?|shows?|describes?|explains?)\b/gi, '$1 material $2'],
+  [/\baccording to the\s+(?:source\s+)?chunks?\b/gi, 'from the lesson'],
+  [/\bthe model (?:says|states|notes)\b/gi, 'the material says'],
+  [/\b(?:the\s+)?source\s+chunks?\b/gi, 'the source material'],
+  [/\bchunks?\b/gi, 'the source material'],
+];
 
 /**
- * One concise takeaway for an answer-feedback panel: strips a leading verdict
- * ("Not quite", "Correct", …) then returns the first sentence. Keeps the
- * takeaway from repeating the headline. Returns null when there's nothing left.
+ * Strip internal/backend wording from generated learner-facing text — most
+ * importantly "chunk"/"source chunk"/"the chunk states…" — and replace it with
+ * coach-friendly phrasing. Display-only, defensive, idempotent-ish (safe to run
+ * on text that has none). Never throws.
+ */
+export function scrubInternalWording(text: string | null | undefined): string {
+  let t = (text ?? '').toString();
+  for (const [re, repl] of INTERNAL_WORDING_REPLACEMENTS) t = t.replace(re, repl);
+  return t.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * One concise takeaway for an answer-feedback panel: scrubs internal wording,
+ * strips a leading verdict ("Not quite"/"Correct") AND the grader's
+ * 'the correct answer is "X".' clause, then returns the first sentence — so the
+ * takeaway is the actual learning point, never an echo of the headline. Null
+ * when nothing useful remains.
  */
 export function feedbackTakeaway(explanation: string | null | undefined): string | null {
-  const stripped = (explanation ?? '').trim().replace(LEADING_VERDICT_RE, '').trim();
-  return firstSentence(stripped);
+  let s = scrubInternalWording(explanation).replace(LEADING_VERDICT_RE, '').trim();
+  s = s.replace(CORRECT_ANSWER_CLAUSE_RE, '').trim();
+  return firstSentence(s);
+}
+
+/**
+ * The detail to show under "Show details": the scrubbed explanation MINUS the
+ * first sentence (already shown as the takeaway), so the two never duplicate.
+ * Null when there's nothing beyond the takeaway.
+ */
+export function feedbackDetail(explanation: string | null | undefined): string | null {
+  let s = scrubInternalWording(explanation).replace(LEADING_VERDICT_RE, '').trim();
+  s = s.replace(CORRECT_ANSWER_CLAUSE_RE, '').trim();
+  const m = s.match(/^[\s\S]*?[.!?](?=\s)/);
+  const rest = (m ? s.slice(m[0].length) : '').trim();
+  return rest || null;
+}
+
+/**
+ * The correct MCQ option as "A. <text>" (letter from its position) or just the
+ * text when it isn't among the choices. Null when there's no answer. Lets the UI
+ * show "Correct answer: …" plainly instead of burying it in prose.
+ */
+export function correctAnswerLabel(
+  correctAnswer: string | null | undefined,
+  choices?: string[] | null,
+): string | null {
+  const ans = (correctAnswer ?? '').trim();
+  if (!ans) return null;
+  if (choices?.length) {
+    const idx = choices.findIndex((c) => (c ?? '').trim().toLowerCase() === ans.toLowerCase());
+    if (idx >= 0) return `${String.fromCharCode(65 + idx)}. ${ans}`;
+  }
+  return ans;
+}
+
+/** Optional "why your answer was tempting": the grader's "(Common mix-up: …)". */
+export function mixUpNote(explanation: string | null | undefined): string | null {
+  const m = (explanation ?? '').match(/\(common mix-?up:\s*([^)]+)\)/i);
+  return m ? m[1].trim() : null;
+}
+
+/** Hard-truncate coach text at a word boundary with an ellipsis. Defensive. */
+export function truncateCoachText(text: string | null | undefined, maxLength = 200): string {
+  const t = (text ?? '').trim();
+  if (t.length <= maxLength) return t;
+  return `${t.slice(0, maxLength).replace(/\s+\S*$/, '')}…`;
 }
 
 // A flashcard back, split into the sections we know how to present. Any field
@@ -531,11 +617,16 @@ export const secondaryButtonClass =
 export const METRIC_REMEMBERED_LABEL = 'Remembered';
 export const METRIC_SOLID_LEARNING_LABEL = 'Solid / Still learning';
 export const METRIC_NEEDS_LOOK_LABEL = 'Needs another look';
-export const METRIC_READY_TO_REVIEW_LABEL = 'Review cards waiting';
+export const METRIC_READY_TO_REVIEW_LABEL = 'Review queue';
 
 /** "~N a day to stay on track" — pace without exposing planner mechanics. */
 export function stayOnTrackLine(perDay: number): string {
   return `~${perDay} a day to stay on track`;
+}
+
+/** Deadline pace status — encouraging, not scolding ("Behind" → "Needs catch-up"). */
+export function scheduleStatusLabel(onTrack: boolean): string {
+  return onTrack ? 'On track' : 'Needs catch-up';
 }
 
 /**

@@ -71,7 +71,10 @@ ${input.conceptTags.join(', ')}
 - For MCQ, mark correct only if the learner answer matches the correct answer meaningfully.
 - For short answers, allow paraphrases if they capture the key meaning.
 - Use the source quote to explain why.
-- Keep explanation under 120 words.
+- Keep the explanation to ONE or TWO short sentences (it is shown collapsed).
+- Write like a coach to the learner. NEVER use internal/retrieval words like
+  "chunk", "source chunk", "record", or "the chunk states…". Say "the material
+  says…" / "from the lesson…" or just describe the idea directly.
 </rules>
 
 <output_schema>

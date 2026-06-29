@@ -100,6 +100,29 @@ assert.ok(
   'the model answer is collapsed in a <details> disclosure',
 );
 
+// --- coach-like MCQ feedback (Task 19) --------------------------------------
+// Status comes from the shared helper (no ad-hoc "Correct"/"Not quite" strings).
+assert.ok(/feedbackStatusLabel\(/.test(sessionPage), 'status uses feedbackStatusLabel');
+// Incorrect MCQ surfaces the correct option plainly, not buried in prose.
+assert.ok(/correctAnswerLabel\(/.test(sessionPage), 'incorrect MCQ derives the correct option');
+assert.ok(/Correct answer:/.test(sessionPage), 'incorrect MCQ shows "Correct answer:"');
+// The takeaway is rendered above (separate from) the collapsed details.
+assert.ok(
+  sessionPage.indexOf('Takeaway') < sessionPage.indexOf('Show details'),
+  'takeaway is shown before the collapsed details',
+);
+// Optional "why your answer was tempting" comes from the mix-up note.
+assert.ok(/mixUpNote\(/.test(sessionPage) && /Why your answer was tempting/.test(sessionPage), 'optional "tempting" note when available');
+
+// --- no internal wording in learner-facing feedback (Task 20) ---------------
+// Generated feedback text is scrubbed of internal terms ("chunk", etc.).
+assert.ok(/scrubInternalWording\(/.test(sessionPage), 'session feedback scrubs internal wording');
+assert.ok(/scrubInternalWording/.test(flashcardBack), 'flashcard back scrubs internal wording (incl. source note)');
+// Details use the de-duplicating helper (no repeat of the takeaway sentence).
+assert.ok(/feedbackDetail\(/.test(sessionPage), 'details use feedbackDetail (no duplicated takeaway)');
+// Correct vs incorrect get a warmer eyebrow.
+assert.ok(/feedbackEyebrow\(/.test(sessionPage), 'takeaway eyebrow adapts (Remember this / Takeaway)');
+
 // The shared back parses into labeled sections and protects cloze.
 assert.ok(/parseFlashcardBack\(/.test(flashcardBack), 'back is parsed into labeled sections');
 assert.ok(/renderClozeText\(/.test(flashcardBack), 'flashcard back renders cloze blanks as "_____"');
@@ -147,16 +170,19 @@ assert.ok(!/sourceUrl \?\? course\.playlistUrl/.test(read('components/CourseCard
 assert.ok(/Model answer/.test(session), 'session uses "Model answer"');
 assert.ok(!/Ideal answer/.test(session), 'session no longer uses "Ideal answer"');
 
-// --- not-started course hides empty analytics; started keeps them -----------
+// --- not-started hides analytics; started shows ONE compact card (Task 19) --
 assert.ok(/const started = progressView\.started/.test(course), 'single started flag is computed');
 assert.ok(
-  /started && \(progress \|\| retention\) &&/.test(course),
-  'Learning progress card is gated on started',
+  /started && \(progress \|\| retention \|\| cardsDue \|\| course\.metadata\?\.targetDate\) &&/.test(course),
+  'one compact progress/review card, gated on started',
 );
+// The two old sparse cards are merged: no separate standalone metrics card.
 assert.ok(
-  /started && \(course\.metadata\?\.targetDate \|\| retention \|\| cardsDue\) &&/.test(course),
-  'metrics grid (incl. Deadline) is gated on started',
+  !/started && \(course\.metadata\?\.targetDate \|\| retention \|\| cardsDue\) &&/.test(course),
+  'no separate standalone review/metrics card remains',
 );
+// Review-waiting is an inline stat using the shared (reframed) label.
+assert.ok(/METRIC_READY_TO_REVIEW_LABEL/.test(course), 'review-waiting uses the shared label');
 
 // --- chapter cards are outcome-focused, with one prominent entry CTA --------
 assert.ok(/chapter\.learning_objectives\?\.length/.test(course), 'renders learning objectives when present');
@@ -187,8 +213,14 @@ assert.ok(/focusListToggleLabel\(/.test(course), 'focus list uses "Show more foc
 assert.ok(/expandedCovers/.test(course), 'raw "Covers:" detail is behind a details toggle');
 assert.ok(/detailsToggleLabel\(/.test(course), 'covers detail uses a Show/Hide details control');
 assert.ok(
-  /expandedCovers\[item\.conceptSlug\] &&[\s\S]{0,240}Covers:/.test(course),
+  /expandedCovers\[item\.conceptSlug\] &&[\s\S]{0,1500}Covers:/.test(course),
   '"Covers:" only renders when its details toggle is expanded',
+);
+// Coach's-pick rows are concise (Task 19): short reason + diagnostics collapsed.
+assert.ok(/truncateCoachText\(/.test(course), 'focus reason is hard-truncated to stay short');
+assert.ok(
+  /expandedCovers\[item\.conceptSlug\] &&[\s\S]{0,400}% there/.test(course),
+  'the "% there"/trend diagnostics are inside the collapsed details, not the row',
 );
 
 // --- READY course card opens the course page, not a session -----------------
@@ -271,5 +303,21 @@ assert.ok(
 );
 // Course cards stay scannable + never expose the raw source URL.
 assert.ok(!/sourceUrl/.test(card), 'course card never renders the raw source URL');
+
+// --- internal-term scan + microcopy polish across surfaces (Task 20) --------
+// No learner-facing surface hardcodes the internal term as rendered text.
+for (const [name, src] of [
+  ['session', session],
+  ['flashcards', flashcardsPage],
+  ['course', course],
+  ['home', home],
+] as const) {
+  assert.ok(!/\bchunk\b/i.test(src), `${name} has no hardcoded "chunk" wording`);
+}
+// "Behind" reframed to a non-scolding status via the shared helper.
+assert.ok(/scheduleStatusLabel\(/.test(home) && /scheduleStatusLabel\(/.test(course), 'deadline status uses scheduleStatusLabel');
+assert.ok(!/'Behind'/.test(home) && !/'Behind'/.test(course), 'no scolding "Behind" literal remains');
+// The plan reads as "N practice items", not "N to practice".
+assert.ok(!/to practice</.test(home), 'home plan no longer says "N to practice"');
 
 console.log('consolidation.test.ts OK');

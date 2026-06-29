@@ -20,8 +20,10 @@ import {
   showMoreLabel,
   detailsToggleLabel,
   focusListToggleLabel,
+  truncateCoachText,
   primaryButtonClass,
   stayOnTrackLine,
+  scheduleStatusLabel,
   METRIC_REMEMBERED_LABEL,
   METRIC_SOLID_LEARNING_LABEL,
   METRIC_NEEDS_LOOK_LABEL,
@@ -263,69 +265,72 @@ export default function CoursePage({
           );
         })()}
 
-        {/* Progress + metrics only matter once the learner has started — a
-            brand-new course shows the path instead of empty analytics. */}
-        {started && (progress || retention) && (
-          <div className={`${primaryCard} p-5 space-y-3`}>
-            <div className="flex items-baseline justify-between">
-              <div className={`${eyebrow} text-gray-400`}>Learning progress</div>
-              <div className="text-2xl font-semibold">{progressView.headline}</div>
-            </div>
-            <div className={progressTrack}>
-              <div className={progressFill} style={{ width: `${progressView.pct}%` }} />
-            </div>
-            <div className="text-sm text-gray-400">{progressView.status}</div>
-          </div>
-        )}
-
-        {started && (course.metadata?.targetDate || retention || cardsDue) && (
+        {/* One compact "where you stand" card — progress + what's waiting +
+            deadline + a quiet details disclosure. Only once the learner has
+            started; a brand-new course shows the path instead of analytics. */}
+        {started && (progress || retention || cardsDue || course.metadata?.targetDate) && (
           <div className={`${primaryCard} p-5 space-y-4`}>
-            {/* Actionable, always visible: what's ready + the deadline. */}
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 text-sm">
-              {cardsDue != null && cardsDue > 0 && (
-                <div>
-                  <div className="text-xs text-gray-500">{METRIC_READY_TO_REVIEW_LABEL}</div>
-                  <a href="/flashcards" className="text-lg font-semibold text-purple-300">{cardsDue}</a>
-                </div>
-              )}
-              {course.metadata?.targetDate && (() => {
-                const target = new Date(course.metadata.targetDate).getTime();
-                const daysLeft = Math.ceil((target - Date.now()) / 86400000);
-                const remaining = retention ? retention.total - retention.mastered : 0;
-                const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
-                // On-track vs an even burn-down (mirrors backend scheduleStatus).
-                let onTrack = true;
-                const created = course.metadata.createdAt
-                  ? new Date(course.metadata.createdAt).getTime()
-                  : null;
-                if (created && retention && retention.total > 0) {
-                  const totalDays = Math.max(1, Math.ceil((target - created) / 86400000));
-                  const elapsed = Math.max(0, totalDays - Math.max(0, daysLeft));
-                  const expectedMastered = (retention.total * elapsed) / totalDays;
-                  onTrack = expectedMastered - retention.mastered <= 0.5;
-                }
-                return (
-                  <div>
-                    <div className="text-xs text-gray-500">Deadline</div>
-                    <div className={`text-lg font-semibold ${daysLeft < 0 ? 'text-red-400' : ''}`}>
-                      {daysLeft < 0 ? 'Passed' : `${daysLeft} days`}
-                    </div>
-                    {daysLeft >= 0 && remaining > 0 && (
-                      <div className="text-xs text-gray-500">{stayOnTrackLine(perDay)}</div>
-                    )}
-                    {daysLeft >= 0 && retention && (
-                      <div className={`text-xs ${onTrack ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {onTrack ? 'On track' : 'Behind'}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+            <div>
+              <div className="flex items-baseline justify-between">
+                <div className={`${eyebrow} text-gray-400`}>Learning progress</div>
+                <div className="text-2xl font-semibold">{progressView.headline}</div>
+              </div>
+              <div className={`${progressTrack} mt-2`}>
+                <div className={progressFill} style={{ width: `${progressView.pct}%` }} />
+              </div>
+              <div className="mt-1 text-sm text-gray-400">{progressView.status}</div>
             </div>
+
+            {/* Compact inline stats: review waiting + deadline (no empty cards). */}
+            {((cardsDue != null && cardsDue > 0) || course.metadata?.targetDate) && (
+              <div className="flex flex-wrap items-start gap-x-8 gap-y-2 border-t border-white/5 pt-3 text-sm">
+                {cardsDue != null && cardsDue > 0 && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-gray-500">{METRIC_READY_TO_REVIEW_LABEL}:</span>
+                    <a href="/flashcards" className="font-semibold text-purple-300">{cardsDue}</a>
+                  </div>
+                )}
+                {course.metadata?.targetDate && (() => {
+                  const target = new Date(course.metadata.targetDate).getTime();
+                  const daysLeft = Math.ceil((target - Date.now()) / 86400000);
+                  const remaining = retention ? retention.total - retention.mastered : 0;
+                  const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
+                  // On-track vs an even burn-down (mirrors backend scheduleStatus).
+                  let onTrack = true;
+                  const created = course.metadata.createdAt
+                    ? new Date(course.metadata.createdAt).getTime()
+                    : null;
+                  if (created && retention && retention.total > 0) {
+                    const totalDays = Math.max(1, Math.ceil((target - created) / 86400000));
+                    const elapsed = Math.max(0, totalDays - Math.max(0, daysLeft));
+                    const expectedMastered = (retention.total * elapsed) / totalDays;
+                    onTrack = expectedMastered - retention.mastered <= 0.5;
+                  }
+                  return (
+                    <div className="flex flex-col">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-gray-500">Deadline:</span>
+                        <span className={`font-semibold ${daysLeft < 0 ? 'text-red-400' : ''}`}>
+                          {daysLeft < 0 ? 'Passed' : `${daysLeft} days left`}
+                        </span>
+                        {daysLeft >= 0 && retention && (
+                          <span className={onTrack ? 'text-green-400' : 'text-yellow-400'}>
+                            · {scheduleStatusLabel(onTrack)}
+                          </span>
+                        )}
+                      </div>
+                      {daysLeft >= 0 && remaining > 0 && (
+                        <span className="text-xs text-gray-500">{stayOnTrackLine(perDay)}</span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Analytical metrics tucked behind a quiet disclosure. */}
             {retention && (
-              <div>
+              <div className="border-t border-white/5 pt-3">
                 <button
                   className="text-sm text-gray-400 hover:text-gray-200"
                   onClick={() => setShowMetricDetails((s) => !s)}
@@ -333,7 +338,7 @@ export default function CoursePage({
                   {showMetricDetails ? '▾ Hide details' : '▸ Details'}
                 </button>
                 {showMetricDetails && (
-                  <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 text-sm">
+                  <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
                     <div>
                       <div className="text-xs text-gray-500">{METRIC_REMEMBERED_LABEL}</div>
                       <div className="text-lg font-semibold">{retention.retentionScore}%</div>
@@ -378,34 +383,19 @@ export default function CoursePage({
                     key={item.conceptSlug}
                     className={`${subtleCard} flex items-start justify-between gap-3 px-4 py-3`}
                   >
-                    <div className="min-w-0 space-y-1">
+                    <div className="min-w-0 space-y-1.5">
                       <div className="font-medium">{item.title}</div>
                       {item.shortDescription && (
-                        <ScannableText
-                          text={item.shortDescription}
-                          keyTerms={extractKeyTerms({
-                            text: item.shortDescription,
-                            explicit: item.rawConcepts ?? [],
-                            deprioritize: courseTitleWords,
-                          })}
-                          className="text-sm text-gray-400"
-                        />
+                        <p className="text-sm text-gray-400">
+                          {truncateCoachText(item.shortDescription, 130)}
+                        </p>
                       )}
-                      <div className="text-xs text-gray-500">
-                        {item.masteryScore}% there
-                        {trendStr && (
-                          <span className={item.trend >= 0 ? 'text-green-400' : 'text-gray-400'}>
-                            {' '}· {trendStr} this week
-                          </span>
-                        )}
-                        {item.lastPracticedAt && (
-                          <span> · last practiced {new Date(item.lastPracticedAt).toLocaleDateString()}</span>
-                        )}
-                      </div>
                       <div className={`${progressTrack} h-1.5 w-40`}>
                         <div className={progressFill} style={{ width: `${item.masteryScore}%` }} />
                       </div>
-                      {item.rawConcepts?.length > 0 && (
+                      {/* Diagnostics + raw concepts stay collapsed by default so
+                          the row reads as one short coaching prompt. */}
+                      {(trendStr || item.lastPracticedAt || item.rawConcepts?.length > 0) && (
                         <div className="text-xs">
                           <button
                             type="button"
@@ -420,8 +410,21 @@ export default function CoursePage({
                             {detailsToggleLabel(!!expandedCovers[item.conceptSlug])}
                           </button>
                           {expandedCovers[item.conceptSlug] && (
-                            <div className="mt-1 text-gray-600">
-                              Covers: {item.rawConcepts.join(', ')}
+                            <div className="mt-1 space-y-0.5 text-gray-500">
+                              <div>
+                                {item.masteryScore}% there
+                                {trendStr && (
+                                  <span className={item.trend >= 0 ? 'text-green-400' : 'text-gray-400'}>
+                                    {' '}· {trendStr} this week
+                                  </span>
+                                )}
+                                {item.lastPracticedAt && (
+                                  <span> · last practiced {new Date(item.lastPracticedAt).toLocaleDateString()}</span>
+                                )}
+                              </div>
+                              {item.rawConcepts?.length > 0 && (
+                                <div className="text-gray-600">Covers: {item.rawConcepts.join(', ')}</div>
+                              )}
                             </div>
                           )}
                         </div>

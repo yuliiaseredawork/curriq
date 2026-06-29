@@ -23,6 +23,13 @@ import {
   FLASHCARD_REVIEW_EYEBROW,
   FLASHCARD_SAVED_LABEL,
   feedbackTakeaway,
+  feedbackDetail,
+  feedbackStatusLabel,
+  feedbackEyebrow,
+  correctAnswerLabel,
+  mixUpNote,
+  truncateCoachText,
+  scrubInternalWording,
 } from '@/lib/learnerCopy';
 import { parseSessionScope } from '@/lib/sessionScope';
 import {
@@ -325,40 +332,62 @@ function SessionInner() {
           )}
 
           {feedback && (() => {
-            // Lead with one concise takeaway; tuck the longer explanation +
-            // strengths/gaps behind "Show details" and collapse the model answer
-            // so the result never lands as a wall of text. Grading is unchanged.
+            // Coach-like + compact: status, the correct option (incorrect MCQ),
+            // one concise takeaway, an optional "why it was tempting", then the
+            // long stuff collapsed — so Next stays close. Grading is unchanged.
             const fullExplanation = (feedback.explanation ?? '').trim();
-            // Strip a leading "Not quite"/"Correct" so the takeaway never echoes
-            // the verdict shown right above it.
+            const isMcq = q.type === 'mcq' && (q.choices?.length ?? 0) > 0;
+            // Incorrect MCQ: surface the correct option plainly, not buried in prose.
+            const correctAns =
+              isMcq && !feedback.correct ? correctAnswerLabel(feedback.idealAnswer, q.choices) : null;
+            // Takeaway strips the verdict + "the correct answer is X" boilerplate
+            // and scrubs internal/backend wording.
             const takeaway = feedbackTakeaway(fullExplanation);
-            const moreThanTakeaway =
-              fullExplanation.length > 0 &&
-              (takeaway === null || fullExplanation.length > takeaway.replace(/…$/, '').length);
+            const tempting = !feedback.correct ? mixUpNote(fullExplanation) : null;
+            // Model answer is its own collapsed line only for open-ended questions
+            // (for MCQ the correct option is already shown above).
+            const modelAnswer = !isMcq ? (feedback.idealAnswer ?? null) : null;
+            // Details = the explanation MINUS the takeaway sentence (no duplicate),
+            // scrubbed of internal terms.
+            const detail = feedbackDetail(fullExplanation);
             const hasDetails =
               (feedback.strengths?.length ?? 0) > 0 ||
               (feedback.missingConcepts?.length ?? 0) > 0 ||
-              moreThanTakeaway;
+              !!detail;
             return (
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className={`font-medium ${feedback.correct ? 'text-green-400' : 'text-yellow-300'}`}>{feedback.headline}</span>
                   {feedback.meta && <span className="text-xs text-gray-400">{feedback.meta}</span>}
                 </div>
 
+                {correctAns && (
+                  <p className="text-sm">
+                    <span className="text-gray-500">Correct answer:</span>{' '}
+                    <span className="font-medium text-gray-100">{correctAns}</span>
+                  </p>
+                )}
+
                 {takeaway && (
                   <div>
-                    <div className={`${eyebrow} text-gray-500`}>Takeaway</div>
+                    <div className={`${eyebrow} text-gray-500`}>{feedbackEyebrow(feedback.correct)}</div>
                     <p className="text-gray-200">{takeaway}</p>
+                  </div>
+                )}
+
+                {tempting && (
+                  <div>
+                    <div className={`${eyebrow} text-gray-500`}>Why your answer was tempting</div>
+                    <p className="text-sm text-gray-300">{truncateCoachText(scrubInternalWording(tempting), 160)}</p>
                   </div>
                 )}
 
                 {hasDetails && (
                   <details>
-                    <summary className="cursor-pointer text-sm text-gray-400 transition hover:text-gray-200">
+                    <summary className="cursor-pointer text-sm text-gray-500 transition hover:text-gray-300">
                       Show details
                     </summary>
-                    <div className="mt-3 space-y-3">
+                    <div className="mt-2 space-y-3">
                       {feedback.strengths?.length > 0 && (
                         <div>
                           <div className="text-sm font-medium text-green-400">What you got right</div>
@@ -375,23 +404,28 @@ function SessionInner() {
                           </ul>
                         </div>
                       )}
-                      {moreThanTakeaway && (
-                        <ScannableText text={fullExplanation} keyTerms={keyTermsForQuestion} className="text-sm text-gray-300" />
+                      {detail && (
+                        <ScannableText
+                          text={detail}
+                          keyTerms={keyTermsForQuestion}
+                          clampChars={320}
+                          className="max-w-prose text-sm text-gray-300"
+                        />
                       )}
                     </div>
                   </details>
                 )}
 
-                {feedback.idealAnswer && (
+                {modelAnswer && (
                   <details className="text-sm">
                     <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-gray-500">
                       Model answer
                     </summary>
                     <ScannableText
-                      text={feedback.idealAnswer}
+                      text={scrubInternalWording(modelAnswer)}
                       keyTerms={keyTermsForQuestion}
                       clampChars={200}
-                      className="mt-1 text-sm text-gray-400"
+                      className="mt-1 max-w-prose text-sm text-gray-400"
                     />
                   </details>
                 )}
@@ -424,7 +458,7 @@ function normalizeFeedback(kind: string, raw: any) {
     const correct = fb.type === 'rubric' ? raw.score >= 70 : !!fb.correct;
     return {
       correct,
-      headline: fb.type === 'rubric' ? `Score ${raw.score}/100` : correct ? 'Correct' : 'Not quite',
+      headline: fb.type === 'rubric' ? `Score ${raw.score}/100` : feedbackStatusLabel(correct),
       meta:
         raw.quality && raw.intervalDays != null
           ? `Rated ${raw.quality} · next review in ${raw.intervalDays}d`
@@ -439,7 +473,7 @@ function normalizeFeedback(kind: string, raw: any) {
   const fb = raw.feedback ?? {};
   return {
     correct: !!fb.correct,
-    headline: fb.correct ? 'Correct' : 'Not quite',
+    headline: feedbackStatusLabel(!!fb.correct),
     meta: undefined,
     explanation: fb.explanation,
     idealAnswer: fb.ideal_answer,

@@ -23,6 +23,7 @@ import {
   visibleBreakdownCourses,
   CREATE_NEW_PATH_HEADING,
   CREATE_NEW_PATH_HELPER,
+  scheduleStatusLabel,
 } from '@/lib/learnerCopy';
 import {
   pageShell,
@@ -381,7 +382,7 @@ export default function Home() {
               <span className="text-blue-300">●</span>~{goal?.estimatedMinutes} min today
             </span>
             <span className="text-gray-600">·</span>
-            <span>{goal?.taskCount} to practice</span>
+            <span>{practiceItemsLabel(goal?.taskCount ?? 0)}</span>
           </div>
           {goal?.deadline && (
             <div className="text-xs text-gray-400">
@@ -396,7 +397,7 @@ export default function Home() {
               )}
               <span className={goal.deadline.onTrack ? 'text-green-400' : 'text-yellow-400'}>
                 {' · '}
-                {goal.deadline.onTrack ? 'On track' : 'Behind'}
+                {scheduleStatusLabel(goal.deadline.onTrack)}
               </span>
             </div>
           )}

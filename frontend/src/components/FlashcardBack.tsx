@@ -5,11 +5,17 @@ import { extractKeyTerms } from '@/lib/highlightTerms';
 import {
   parseFlashcardBack,
   renderClozeText,
+  scrubInternalWording,
   FLASHCARD_ANSWER_LABEL,
   FLASHCARD_WHY_LABEL,
   FLASHCARD_WATCH_OUT_LABEL,
   FLASHCARD_SOURCE_NOTE_LABEL,
 } from '@/lib/learnerCopy';
+
+// Render learner-facing card text: scrub internal/backend wording, then render
+// cloze blanks as "_____".
+const clean = (text: string | null | undefined): string =>
+  renderClozeText(scrubInternalWording(text));
 
 // The reveal endpoint's payload (api: POST /flashcards/:id/reveal). All fields
 // optional so older stored cards (no labels, no source note) render safely.
@@ -43,7 +49,7 @@ function BackSection({
         {label}
       </div>
       <ScannableText
-        text={renderClozeText(text)}
+        text={clean(text)}
         keyTerms={keyTerms}
         className={tone === 'warn' ? 'text-sm text-gray-300' : 'text-gray-200'}
       />
@@ -112,7 +118,7 @@ export function FlashcardBack({
           {/* Never drop content: any unplaceable leftover renders plainly. */}
           {parsed.fallback && (
             <ScannableText
-              text={renderClozeText(parsed.fallback)}
+              text={clean(parsed.fallback)}
               keyTerms={keyTerms}
               className="text-gray-200"
             />
@@ -120,7 +126,7 @@ export function FlashcardBack({
         </>
       ) : (
         <ScannableText
-          text={renderClozeText(parsed.fallback ?? back.back ?? '')}
+          text={clean(parsed.fallback ?? back.back ?? '')}
           keyTerms={keyTerms}
           className="text-gray-200"
         />
@@ -133,9 +139,9 @@ export function FlashcardBack({
           </summary>
           <div className="mt-1 space-y-1">
             {parsed.sourceNote && (
-              <p className="text-gray-400">{renderClozeText(parsed.sourceNote)}</p>
+              <p className="text-gray-400">{clean(parsed.sourceNote)}</p>
             )}
-            {back.sourceQuote && <p className="italic text-gray-500">“{back.sourceQuote}”</p>}
+            {back.sourceQuote && <p className="italic text-gray-500">“{scrubInternalWording(back.sourceQuote)}”</p>}
           </div>
         </details>
       )}

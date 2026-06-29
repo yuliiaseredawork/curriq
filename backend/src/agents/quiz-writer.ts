@@ -63,7 +63,10 @@ material, not whether they can recall a single sentence from the transcript.
 Every question must be grounded in the provided chunks. Every question must include:
 - source_chunk_id (the chunk that supports the answer)
 - source_quote copied from that chunk's text
-- explanation: a short, source-grounded reason the answer is correct
+- explanation: ONE or TWO short sentences on why the answer is correct, written
+  for the LEARNER (shown after they answer). NEVER use internal words like
+  "chunk"/"the chunk states…" in the explanation — say "the material says…" or
+  describe the idea directly.
 Do NOT create a question if the chunks do not support both its answer and its explanation.
 `;
 
@@ -138,6 +141,8 @@ AVOID (these count as low-value recall):
 - simple "what is X?" definitions
 - facts answerable by quoting a single sentence verbatim
 - obvious facts copied directly from the transcript
+- "According to the source/video/material, …" phrasing — ask about the IDEA,
+  not the source, unless the question is specifically about provenance.
 At most ONE question may be simple recall, and only if it has real value.
 
 Be honest with "question_kind": if a question only asks for a name, date,
@@ -160,6 +165,8 @@ label it conceptual/application to dodge the recall cap.
   * trivially eliminable filler
 - A good distractor requires conceptual understanding to rule out, not just
   attention to one stated fact.
+- Keep every choice CONCISE — a short phrase or clause, ideally under ~140
+  characters. No choice should be a sentence-long paragraph.
 - Set "misconception_target" to a short phrase naming the confusion the
   distractors are designed to catch (e.g. "Confuses concept A with concept B").
 </mcq_rules>

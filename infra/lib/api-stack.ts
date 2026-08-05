@@ -270,16 +270,23 @@ export class ApiStack extends cdk.Stack {
       evaluationPeriods: 2,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+    const monthlyAiCostAlertUsd = Number(
+      process.env.MONTHLY_AI_COST_ALERT_USD ?? 100,
+    );
     const aiCost = new cloudwatch.Alarm(this, "MonthlyAiCostAlarm", {
       metric: new cloudwatch.Metric({
         namespace: "Curriq",
         metricName: "AiEstimatedCostUsd",
         statistic: "Sum",
-        period: cdk.Duration.days(30),
+        period: cdk.Duration.days(1),
       }),
-      threshold: Number(process.env.MONTHLY_AI_COST_ALERT_USD ?? 100),
+      // CloudWatch alarms cannot evaluate hourly-or-longer periods over more
+      // than seven days. Alert on the daily spend that projects to the monthly
+      // budget instead of attempting an unsupported 30-day alarm period.
+      threshold: monthlyAiCostAlertUsd / 30,
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: `Daily AI spend projects above the $${monthlyAiCostAlertUsd} monthly budget`,
     });
     const generationFailures = new cloudwatch.Alarm(
       this,

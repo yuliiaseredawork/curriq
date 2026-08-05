@@ -1,9 +1,15 @@
 const appUrl = process.env.SMOKE_APP_URL;
 const apiUrl = process.env.SMOKE_API_URL;
 const expectedOrigin = process.env.SMOKE_EXPECTED_ORIGIN ?? appUrl;
+const apiOnly = process.env.SMOKE_API_ONLY === "true";
 
-if (!appUrl || !apiUrl) {
-  throw new Error("SMOKE_APP_URL and SMOKE_API_URL are required");
+if (!apiUrl || (!apiOnly && !appUrl)) {
+  throw new Error(
+    "SMOKE_API_URL is required; SMOKE_APP_URL is also required unless SMOKE_API_ONLY=true",
+  );
+}
+if (!expectedOrigin) {
+  throw new Error("SMOKE_EXPECTED_ORIGIN is required for API-only smoke tests");
 }
 
 async function request(url, init = {}) {
@@ -15,17 +21,28 @@ if (!health.ok || (await health.json()).status !== "ok") {
   throw new Error(`API health failed: ${health.status}`);
 }
 
-const home = await request(appUrl);
-if (!home.ok || !(await home.text()).includes("Curriq")) {
-  throw new Error(`Frontend smoke failed: ${home.status}`);
+if (!apiOnly) {
+  const home = await request(appUrl);
+  if (!home.ok || !(await home.text()).includes("Curriq")) {
+    throw new Error(`Frontend smoke failed: ${home.status}`);
+  }
+
+  const privacy = await request(`${appUrl}/privacy`);
+  if (!privacy.ok || !(await privacy.text()).includes("export your data")) {
+    throw new Error(`Privacy page smoke failed: ${privacy.status}`);
+  }
 }
 
-const privacy = await request(`${appUrl}/privacy`);
-if (!privacy.ok || !(await privacy.text()).includes("export your data")) {
-  throw new Error(`Privacy page smoke failed: ${privacy.status}`);
-}
-
-for (const path of ["/courses", "/billing/checkout", "/admin/events"]) {
+for (const path of [
+  "/courses",
+  "/search",
+  "/outline",
+  "/quizzes",
+  "/practice",
+  "/courses/smoke-test/process",
+  "/billing/checkout",
+  "/admin/events",
+]) {
   const response = await request(`${apiUrl}${path}`, {
     method: path === "/courses" ? "GET" : "POST",
     headers: { "Content-Type": "application/json" },
@@ -60,4 +77,4 @@ if (
   throw new Error("CORS preflight did not return the expected single origin");
 }
 
-console.log(JSON.stringify({ status: "passed", appUrl, apiUrl }));
+console.log(JSON.stringify({ status: "passed", apiOnly, appUrl, apiUrl }));

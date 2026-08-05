@@ -5,6 +5,10 @@
     "lint": "pnpm --if-present -r lint",
     "build": "pnpm --if-present -r build",
     "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm --dir infra synth",
+    "e2e": "playwright test",
+    "e2e:list": "playwright test --list",
+    "test:load": "node scripts/load-test.mjs",
+    "test:recovery": "bash scripts/recovery-drill.sh",
     "eval:retrieval": "tsx backend/src/evals/run-retrieval-eval.ts",
     "eval:grounding": "tsx backend/src/evals/run-grounding-eval.ts",
     "eval:quiz": "tsx backend/src/evals/run-quiz-quality-eval.ts"
@@ -54,10 +58,13 @@
     "openai": "^6.39.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.21.0",
+    "stripe": "^18.5.0",
     "youtube-transcript": "^1.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@clerk/testing": "^1.14.9",
+    "@playwright/test": "^1.62.1",
     "@types/aws-lambda": "^8.10.152",
     "@types/node": "^24.12.4",
     "@types/pg": "^8.20.0",

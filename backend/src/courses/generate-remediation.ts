@@ -26,22 +26,14 @@ import {
 import { getCourseMistakes } from "../storage/study-state";
 import { slugifyConcept, INITIAL_SCORE } from "./mastery";
 import { dedupeTags, normalizeTag, tagOverlap } from "./concept-normalize";
-import { getOpenAiClient } from "../config/provider-secrets";
+import { embedText } from "../ai/embeddings";
+import { enterLearnerContext } from "../observability/logger";
+import { isAccountDeleted } from "../storage/accounts";
 
 const lambda = new LambdaClient({});
 
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-  return res.data[0].embedding;
-}
-
 async function searchChunks(courseId: string, query: string, limit: number) {
-  const embedding = await embed(query);
+  const embedding = await embedText(query);
   const response = await lambda.send(
     new InvokeCommand({
       FunctionName: process.env.SEARCH_CHUNKS_FUNCTION_NAME!,
@@ -70,6 +62,9 @@ export const handler = async (event: {
   force?: boolean;
 }) => {
   const { courseId, userId } = event;
+  if (await isAccountDeleted(userId))
+    return { consolidated: 0, canceled: true };
+  enterLearnerContext(userId);
   console.log("[consolidate-focus] start", { courseId });
 
   const mistakes = await getCourseMistakes({ userId, courseId });

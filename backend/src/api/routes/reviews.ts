@@ -24,6 +24,7 @@ import {
   requiredReviewsPerDay,
   scheduleStatus,
 } from "../../courses/deadline";
+import { recordProductEvent } from "../../analytics/events";
 
 export const reviews = new Hono();
 const lambda = new LambdaClient({});
@@ -291,6 +292,15 @@ reviews.post("/reviews/answer", async (c) => {
     );
     const updated = applyReview(record, quality);
     await putMastery(updated);
+    await recordProductEvent("review_completed", userId, {
+      quality,
+      intervalDays: updated.intervalDays,
+    });
+    if ((updated.repetitions ?? 0) >= 2) {
+      await recordProductEvent("retained_learner", userId, {
+        repetitions: updated.repetitions ?? 0,
+      });
+    }
 
     console.log("[reviews/answer]", {
       courseId,

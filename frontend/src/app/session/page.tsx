@@ -95,6 +95,16 @@ function SessionInner() {
           taskCount: res.tasks.length,
           ...(src ? { src } : {}),
         });
+        void api
+          .recordProductEvent("session_started", {
+            scope: scopeChapterId
+              ? "chapter"
+              : scopeCourseId
+                ? "course"
+                : "all",
+            taskCount: res.tasks.length,
+          })
+          .catch(() => {});
       }
     } catch (e: any) {
       setError(e.message ?? "Failed to load session");
@@ -114,6 +124,9 @@ function SessionInner() {
     // Completing the last task = a finished review session (D1/D2 signal).
     if (index + 1 >= tasks.length) {
       recordSessionCompleted({ reviewed: reviewed + 1 });
+      void api
+        .recordProductEvent("session_completed", { reviewed: reviewed + 1 })
+        .catch(() => {});
     }
     setReviewed((n) => n + 1);
     setIndex((i) => i + 1);

@@ -1,4 +1,8 @@
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({});
 
@@ -14,7 +18,7 @@ export async function saveOutline(courseId: string, outline: unknown) {
       Bucket: process.env.PROCESSED_BUCKET!,
       Key: key,
       Body: JSON.stringify(outline, null, 2),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
 
@@ -50,7 +54,7 @@ export async function saveQuiz(
       Bucket: process.env.PROCESSED_BUCKET!,
       Key: key,
       Body: JSON.stringify(quiz, null, 2),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
 
@@ -74,10 +78,7 @@ export function manifestKey(courseId: string) {
   return `courses/${courseId}/manifest.json`;
 }
 
-export async function saveCourseManifest(
-  courseId: string,
-  manifest: unknown,
-) {
+export async function saveCourseManifest(courseId: string, manifest: unknown) {
   const key = manifestKey(courseId);
 
   await s3.send(
@@ -85,7 +86,7 @@ export async function saveCourseManifest(
       Bucket: process.env.PROCESSED_BUCKET!,
       Key: key,
       Body: JSON.stringify(manifest, null, 2),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
 
@@ -116,10 +117,7 @@ export async function loadCourseManifest(courseId: string) {
 // ---------------------------------------------------------------------------
 
 export type ChapterQuizStatus =
-  | 'NOT_STARTED'
-  | 'GENERATING'
-  | 'READY'
-  | 'FAILED';
+  "NOT_STARTED" | "GENERATING" | "READY" | "FAILED";
 
 export type ChapterQuizRecord = {
   chapterId: string;
@@ -143,7 +141,7 @@ async function tryGetJson(key: string): Promise<any | null> {
     );
     return JSON.parse(await obj.Body!.transformToString());
   } catch (e: any) {
-    if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) {
+    if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) {
       return null;
     }
     throw e;
@@ -183,7 +181,7 @@ export async function updateChapterQuizStatus(
       Bucket: process.env.PROCESSED_BUCKET!,
       Key: quizStatusKey(courseId, chapterId),
       Body: JSON.stringify(record, null, 2),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
 
@@ -204,7 +202,7 @@ export async function loadQuizManifest(
   chapters: Record<string, ChapterQuizRecord>;
 }> {
   const chapters: Record<string, ChapterQuizRecord> = {};
-  let latest = '';
+  let latest = "";
 
   for (const chapterId of chapterIds) {
     let record = await loadChapterQuizStatus(courseId, chapterId);
@@ -214,10 +212,10 @@ export async function loadQuizManifest(
       record = quiz
         ? {
             chapterId,
-            status: 'READY',
+            status: "READY",
             questionCount: quiz.questions?.length ?? 0,
           }
-        : { chapterId, status: 'NOT_STARTED' };
+        : { chapterId, status: "NOT_STARTED" };
     }
 
     chapters[chapterId] = record;
@@ -253,7 +251,7 @@ export async function saveRemediationSet(
       Bucket: process.env.PROCESSED_BUCKET!,
       Key: key,
       Body: JSON.stringify(set, null, 2),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
   return { key };
@@ -272,7 +270,7 @@ export async function loadRemediationSet(
     );
     return JSON.parse(await obj.Body!.transformToString());
   } catch (e: any) {
-    if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) {
+    if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) {
       return null;
     }
     throw e;
@@ -295,7 +293,7 @@ export async function savePractice(
       Bucket: process.env.PROCESSED_BUCKET!,
       Key: key,
       Body: JSON.stringify(practice, null, 2),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
 

@@ -3,7 +3,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
-import { getOpenAiClient } from "../config/provider-secrets";
+import { embedTexts } from "../ai/embeddings";
 
 const s3 = new S3Client({});
 
@@ -46,17 +46,6 @@ function chunk(segments: Segment[]): Chunk[] {
   return result;
 }
 
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  return res.data[0].embedding;
-}
-
 export const handler = async (event: {
   courseId: string;
   playlistId: string;
@@ -73,20 +62,15 @@ export const handler = async (event: {
 
   const chunks = chunk(segments);
 
-  const embeddedChunks = [];
-
-  for (const c of chunks) {
-    const embedding = await embed(c.text);
-
-    embeddedChunks.push({
-      courseId: event.courseId,
-      playlistId: event.playlistId,
-      videoId: event.videoId,
-      startSec: Math.round(c.start),
-      text: c.text,
-      embedding,
-    });
-  }
+  const embeddings = await embedTexts(chunks.map((chunk) => chunk.text));
+  const embeddedChunks = chunks.map((c, index) => ({
+    courseId: event.courseId,
+    playlistId: event.playlistId,
+    videoId: event.videoId,
+    startSec: Math.round(c.start),
+    text: c.text,
+    embedding: embeddings[index],
+  }));
 
   const key = `courses/${event.courseId}/videos/${event.videoId}/chunks.json`;
 

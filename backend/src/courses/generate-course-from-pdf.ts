@@ -27,9 +27,12 @@ import { loadOutline, saveOutline } from "../storage/course-artifacts";
 import { generateOutlineFromChunks } from "../agents/outliner";
 import { callCourseMetadata } from "./course-metadata-client";
 import { toUserSafeReason } from "./failure-reason";
-import { getOpenAiClient } from "../config/provider-secrets";
+import { embedText, embedTexts } from "../ai/embeddings";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { runIdempotentStage } from "../jobs/stage-idempotency";
+import { enterLearnerContext } from "../observability/logger";
+import { recordProductEvent } from "../analytics/events";
+import { isAccountDeleted } from "../storage/accounts";
 
 const s3 = new S3Client({});
 const lambda = new LambdaClient({});
@@ -40,16 +43,6 @@ const MAX_CHUNK_CHARS = 1600;
 const MAX_PDF_BYTES = Number(process.env.MAX_PDF_BYTES ?? 20 * 1024 * 1024);
 const MAX_PDF_PAGES = Number(process.env.MAX_PDF_PAGES ?? 300);
 const MAX_PDF_TEXT_CHARS = Number(process.env.MAX_PDF_TEXT_CHARS ?? 2_000_000);
-
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-  return res.data[0].embedding;
-}
 
 async function invokeJson(functionName: string, payload: unknown) {
   const res = await lambda.send(
@@ -71,7 +64,7 @@ async function searchChunks(input: {
   query: string;
   limit: number;
 }) {
-  const embedding = await embed(input.query);
+  const embedding = await embedText(input.query);
   return invokeJson(process.env.SEARCH_CHUNKS_FUNCTION_NAME!, {
     courseId: input.courseId,
     embedding,
@@ -81,6 +74,7 @@ async function searchChunks(input: {
 
 async function fanOutChapterQuizzes(
   courseId: string,
+  userId: string,
   chapters: Array<{ id: string }>,
 ) {
   const fnName = process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME;
@@ -98,7 +92,7 @@ async function fanOutChapterQuizzes(
           FunctionName: fnName,
           InvocationType: InvocationType.Event,
           Payload: Buffer.from(
-            JSON.stringify({ courseId, chapterId: chapter.id }),
+            JSON.stringify({ courseId, userId, chapterId: chapter.id }),
           ),
         }),
       );
@@ -193,6 +187,8 @@ export const handler = async (event: {
   fileName: string;
 }) => {
   const { courseId, userId, fileKey, fileName } = event;
+  if (await isAccountDeleted(userId)) return { courseId, status: "CANCELED" };
+  enterLearnerContext(userId);
   console.log("[generate-course-from-pdf] start", { courseId });
 
   try {
@@ -247,11 +243,11 @@ export const handler = async (event: {
         courseId,
         status: "PROCESSING",
       });
-      const embedded = [];
-      for (const ch of pdfChunks) {
-        const embedding = await embed(ch.text);
-        embedded.push({ ...ch, embedding });
-      }
+      const vectors = await embedTexts(pdfChunks.map((chunk) => chunk.text));
+      const embedded = pdfChunks.map((chunk, index) => ({
+        ...chunk,
+        embedding: vectors[index],
+      }));
 
       await s3.send(
         new PutObjectCommand({
@@ -343,9 +339,12 @@ export const handler = async (event: {
       sourceFileName: fileName,
     });
     console.log("[generate-course-from-pdf] status → READY", { courseId });
+    await recordProductEvent("generation_ready", userId, {
+      sourceType: "PDF",
+    });
 
     // 8. Background quiz generation per chapter.
-    await fanOutChapterQuizzes(courseId, outline.chapters);
+    await fanOutChapterQuizzes(courseId, userId, outline.chapters);
 
     return { courseId, status: "READY", title: outline.title };
   } catch (e: any) {
@@ -354,6 +353,9 @@ export const handler = async (event: {
     console.error("[generate-course-from-pdf] FAILED", {
       courseId,
       error: rawError,
+    });
+    await recordProductEvent("generation_failed", userId, {
+      sourceType: "PDF",
     });
     try {
       await callCourseMetadata({

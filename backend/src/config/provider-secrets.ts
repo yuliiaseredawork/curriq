@@ -5,6 +5,7 @@ import {
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { emitAiUsage } from "../observability/logger";
+import { recordAiCost } from "../analytics/events";
 
 const secrets = new SecretsManagerClient({});
 let providerValues: Promise<Record<string, string>> | undefined;
@@ -60,7 +61,11 @@ export async function getProviderSecret(name: string): Promise<string> {
 export async function getOpenAiClient(): Promise<OpenAI> {
   const apiKey = await getProviderSecret("OPENAI_API_KEY");
   if (!openaiClient || openaiApiKey !== apiKey) {
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI({
+      apiKey,
+      timeout: Number(process.env.OPENAI_TIMEOUT_MS ?? 30_000),
+      maxRetries: 2,
+    });
     const embeddings = client.embeddings as any;
     const create = embeddings.create.bind(embeddings);
     embeddings.create = async (...args: any[]) => {
@@ -68,14 +73,16 @@ export async function getOpenAiClient(): Promise<OpenAI> {
       const tokens = Number(
         result.usage?.total_tokens ?? result.usage?.prompt_tokens ?? 0,
       );
-      emitAiUsage({
+      const usage = {
         provider: "OpenAI",
         model: String(args[0]?.model ?? "unknown"),
         inputTokens: tokens,
         estimatedCostUsd:
           tokens *
           Number(process.env.OPENAI_EMBEDDING_USD_PER_TOKEN ?? 0.00000002),
-      });
+      } as const;
+      emitAiUsage(usage);
+      await recordAiCost(usage);
       return result;
     };
     openaiClient = client;
@@ -89,6 +96,8 @@ export async function getAnthropicClient(): Promise<Anthropic> {
   if (!anthropicClient || anthropicApiKey !== apiKey) {
     const client = new Anthropic({
       apiKey,
+      timeout: Number(process.env.ANTHROPIC_TIMEOUT_MS ?? 30_000),
+      maxRetries: 2,
     });
     const messages = client.messages as any;
     const create = messages.create.bind(messages);
@@ -102,14 +111,16 @@ export async function getAnthropicClient(): Promise<Anthropic> {
       const outputRate = Number(
         process.env.ANTHROPIC_OUTPUT_USD_PER_MILLION ?? 15,
       );
-      emitAiUsage({
+      const usage = {
         provider: "Anthropic",
         model: String(args[0]?.model ?? "unknown"),
         inputTokens,
         outputTokens,
         estimatedCostUsd:
           (inputTokens * inputRate + outputTokens * outputRate) / 1_000_000,
-      });
+      } as const;
+      emitAiUsage(usage);
+      await recordAiCost(usage);
       return result;
     };
     anthropicClient = client;

@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 30
     env:
       NEXT_PUBLIC_API_URL: https://api.example.invalid
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y3VycmlxLWNpLW9ubHk
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
       PROD_APP_URL: https://curriq.app
       PROVIDER_SECRET_NAME: curriq/ci/providers
     steps:
@@ -37,6 +37,8 @@ jobs:
         run: pnpm lint
       - name: Run frontend, backend, and infrastructure tests
         run: pnpm test
+      - name: Validate end-to-end suite discovery
+        run: pnpm e2e:list
       - name: Build production frontend and infrastructure
         run: pnpm build
       - name: Synthesize all CDK stacks

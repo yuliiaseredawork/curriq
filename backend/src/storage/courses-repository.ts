@@ -1,78 +1,9 @@
-import {
-  SecretsManagerClient,
-  GetSecretValueCommand,
-} from "@aws-sdk/client-secrets-manager";
-import { Client } from "pg";
-
-const secrets = new SecretsManagerClient({});
-
-async function getDbConfig() {
-  const secret = await secrets.send(
-    new GetSecretValueCommand({
-      SecretId: process.env.DB_SECRET_ARN!,
-    }),
-  );
-
-  return JSON.parse(secret.SecretString!);
-}
-
-async function createClient() {
-  const db = await getDbConfig();
-
-  const client = new Client({
-    host: db.host,
-    port: db.port,
-    database: db.dbname,
-    user: db.username,
-    password: db.password,
-    ssl: { rejectUnauthorized: false },
-  });
-
-  await client.connect();
-
-  return client;
-}
+import { createReusableClient as createClient } from "./database";
 
 type CourseStatus =
   "CREATED" | "INGESTING" | "PROCESSING" | "OUTLINING" | "READY" | "FAILED";
 
 export type SourceType = "YOUTUBE_PLAYLIST" | "YOUTUBE_VIDEO" | "PDF";
-
-/**
- * Idempotent schema migration for multi-source support. Adds the source_*
- * columns if missing and backfills existing (YouTube) courses. Safe to run
- * repeatedly. Invoked via the courseMetadata Lambda's `migrate` action.
- */
-export async function runMigrations() {
-  const client = await createClient();
-  try {
-    await client.query(`
-      ALTER TABLE public.courses
-        ADD COLUMN IF NOT EXISTS source_type text,
-        ADD COLUMN IF NOT EXISTS source_url text,
-        ADD COLUMN IF NOT EXISTS source_file_key text,
-        ADD COLUMN IF NOT EXISTS source_file_name text,
-        ADD COLUMN IF NOT EXISTS source_key text,
-        ADD COLUMN IF NOT EXISTS target_date timestamptz;
-    `);
-    // Per-user dedup lookup by source key.
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS courses_user_source_key_idx
-        ON public.courses (user_id, source_key);
-    `);
-    // PDF courses have no playlist — relax the legacy NOT NULL constraint.
-    await client.query(`
-      ALTER TABLE public.courses ALTER COLUMN playlist_url DROP NOT NULL;
-    `);
-    await client.query(`
-      UPDATE public.courses
-      SET source_type = 'YOUTUBE_PLAYLIST'
-      WHERE source_type IS NULL;
-    `);
-  } finally {
-    await client.end();
-  }
-}
 
 export async function upsertCourse(input: {
   courseId: string;
@@ -409,6 +340,48 @@ export async function getCourseMetadataForUser(input: {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     };
+  } finally {
+    await client.end();
+  }
+}
+
+export async function exportCoursesForUser(userId: string) {
+  const client = await createClient();
+  try {
+    const result = await client.query(
+      `
+      SELECT id, user_id, title, status, error_message, source_type,
+             source_url, source_file_name, target_date, created_at, updated_at
+      FROM public.courses
+      WHERE user_id = $1
+      ORDER BY created_at ASC
+      `,
+      [userId],
+    );
+    return result.rows;
+  } finally {
+    await client.end();
+  }
+}
+
+/** Delete the owned course rows and cascaded vector chunks transactionally. */
+export async function deleteCoursesForUser(userId: string) {
+  const client = await createClient();
+  try {
+    const result = await client.query(
+      `
+      DELETE FROM public.courses
+      WHERE user_id = $1
+      RETURNING id, source_file_key
+      `,
+      [userId],
+    );
+    return result.rows.map((row) => ({
+      courseId: String(row.id),
+      sourceFileKey: row.source_file_key
+        ? String(row.source_file_key)
+        : undefined,
+    }));
   } finally {
     await client.end();
   }

@@ -1,0 +1,43 @@
+name: Recovery drill
+
+on:
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: recovery-drill-staging
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: staging-recovery
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_RECOVERY_ROLE_ARN }}
+          aws-region: us-west-2
+      - name: Resolve protected staging resources
+        id: resources
+        run: |
+          table=$(aws cloudformation describe-stacks --stack-name Curriq-Data-staging --query "Stacks[0].Outputs[?OutputKey=='UsersTableName'].OutputValue" --output text)
+          database=$(aws cloudformation describe-stacks --stack-name Curriq-Data-staging --query "Stacks[0].Outputs[?OutputKey=='RdsInstanceIdentifier'].OutputValue" --output text)
+          bucket=$(aws cloudformation describe-stacks --stack-name Curriq-Data-staging --query "Stacks[0].Outputs[?OutputKey=='RawBucketName'].OutputValue" --output text)
+          echo "table=${table}" >> "$GITHUB_OUTPUT"
+          echo "database=${database}" >> "$GITHUB_OUTPUT"
+          echo "bucket=${bucket}" >> "$GITHUB_OUTPUT"
+      - name: Restore DynamoDB, S3, and RDS data
+        env:
+          RECOVERY_DRILL_CONFIRM: staging-only
+          RECOVERY_STAGE: staging
+          RECOVERY_DYNAMODB_TABLE: ${{ steps.resources.outputs.table }}
+          RECOVERY_RDS_INSTANCE: ${{ steps.resources.outputs.database }}
+          RECOVERY_S3_BUCKET: ${{ steps.resources.outputs.bucket }}
+        run: bash scripts/recovery-drill.sh

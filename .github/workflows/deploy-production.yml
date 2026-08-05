@@ -1,0 +1,93 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit SHA already verified in staging
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      AWS_REGION: us-west-2
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      PROVIDER_SECRET_NAME: curriq/prod/providers
+      PROD_APP_URL: ${{ vars.PROD_APP_URL }}
+      APP_URL: ${{ vars.PROD_APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify release again before production
+        run: pnpm run ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: previous
+        name: Read last healthy production release
+        run: |
+          previous_sha=$(aws ssm get-parameter --name /curriq/prod/deployed-sha --query Parameter.Value --output text 2>/dev/null || true)
+          echo "sha=${previous_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Build immutable production frontend candidate
+        run: |
+          npx --yes vercel@56.5.0 pull --yes --environment=production --token="$VERCEL_TOKEN" --cwd frontend
+          npx --yes vercel@56.5.0 build --prod --token="$VERCEL_TOKEN" --cwd frontend
+      - id: frontend
+        name: Deploy candidate without production traffic
+        run: |
+          candidate=$(npx --yes vercel@56.5.0 deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN" --cwd frontend)
+          echo "url=${candidate}" >> "$GITHUB_OUTPUT"
+      - name: Smoke the staged production frontend
+        env:
+          SMOKE_APP_URL: ${{ steps.frontend.outputs.url }}
+          SMOKE_API_URL: ${{ vars.PROD_API_URL }}
+          SMOKE_EXPECTED_ORIGIN: ${{ vars.PROD_APP_URL }}
+        run: node scripts/smoke-test.mjs
+      - name: Deploy production infrastructure, migrations, and backend
+        run: pnpm --dir infra cdk deploy --all --context stage=prod --require-approval never
+      - name: Promote the verified frontend artifact
+        run: npx --yes vercel@56.5.0 promote "${{ steps.frontend.outputs.url }}" --yes --token="$VERCEL_TOKEN"
+      - name: Production post-deployment checks
+        env:
+          SMOKE_APP_URL: ${{ vars.PROD_APP_URL }}
+          SMOKE_API_URL: ${{ vars.PROD_API_URL }}
+          SMOKE_EXPECTED_ORIGIN: ${{ vars.PROD_APP_URL }}
+        run: node scripts/smoke-test.mjs
+      - name: Record healthy production release
+        run: aws ssm put-parameter --name /curriq/prod/deployed-sha --type String --overwrite --value "$(git rev-parse HEAD)"
+      - name: Remove the unused legacy Cognito stack
+        run: bash scripts/remove-legacy-cognito.sh prod
+
+      - name: Roll back frontend and backend on failed checks
+        if: failure() && steps.previous.outputs.sha != ''
+        run: |
+          npx --yes vercel@56.5.0 rollback --yes --token="$VERCEL_TOKEN" || true
+          git checkout "${{ steps.previous.outputs.sha }}"
+          pnpm install --frozen-lockfile
+          pnpm --dir infra cdk deploy --all --context stage=prod --require-approval never

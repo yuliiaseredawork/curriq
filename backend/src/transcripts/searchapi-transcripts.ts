@@ -32,6 +32,7 @@ export async function fetchTranscriptFromSearchApi(
     headers: {
       Authorization: `Bearer ${apiKey}`,
     },
+    signal: AbortSignal.timeout(20_000),
   });
 
   if (!response.ok) {

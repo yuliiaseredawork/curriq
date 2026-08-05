@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as path from "path";
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
@@ -19,17 +20,36 @@ import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import * as customResources from "aws-cdk-lib/custom-resources";
+
+function latestMigrationVersion(): string {
+  const migrationDirectory = path.join(__dirname, "../../backend/migrations");
+  const versions = fs
+    .readdirSync(migrationDirectory)
+    .map((fileName) => /^(\d{3})_.*\.sql$/.exec(fileName)?.[1])
+    .filter((version): version is string => Boolean(version))
+    .sort();
+
+  const latest = versions.at(-1);
+  if (!latest) {
+    throw new Error(`No versioned migrations found in ${migrationDirectory}`);
+  }
+  return latest;
+}
 
 interface Props extends cdk.StackProps {
   vpc: ec2.Vpc;
   rawBucket: s3.Bucket;
   processedBucket: s3.Bucket;
-  db: rds.DatabaseInstance;
+  dbProxy: rds.DatabaseProxy;
   dbSecret: sm.ISecret;
   focusAreasTable: ddb.Table;
   mistakesTable: ddb.Table;
   jobStateTable: ddb.Table;
   providerSecret: sm.ISecret;
+  embeddingCacheTable: ddb.Table;
+  analyticsTable: ddb.Table;
+  usersTable: ddb.Table;
 }
 
 function lambdaLogGroup(scope: Construct, id: string) {
@@ -87,6 +107,7 @@ export class IngestStack extends cdk.Stack {
           RAW_BUCKET: props.rawBucket.bucketName,
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           PROVIDER_SECRET_ARN: props.providerSecret.secretArn,
+          EMBEDDING_CACHE_TABLE: props.embeddingCacheTable.tableName,
         },
       },
     );
@@ -116,6 +137,7 @@ export class IngestStack extends cdk.Stack {
         environment: {
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           DB_SECRET_ARN: props.dbSecret.secretArn,
+          DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
         },
       },
     );
@@ -141,6 +163,7 @@ export class IngestStack extends cdk.Stack {
         },
         environment: {
           DB_SECRET_ARN: props.dbSecret.secretArn,
+          DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
         },
       },
     );
@@ -166,9 +189,46 @@ export class IngestStack extends cdk.Stack {
         },
         environment: {
           DB_SECRET_ARN: props.dbSecret.secretArn,
+          DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
         },
       },
     );
+
+    const migrationFn = new lambdaNode.NodejsFunction(this, "MigrationFn", {
+      entry: path.join(
+        __dirname,
+        "../../backend/src/migrations/migration-runner.ts",
+      ),
+      projectRoot: path.join(__dirname, "../.."),
+      handler: "handler",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      memorySize: 256,
+      timeout: cdk.Duration.minutes(5),
+      reservedConcurrentExecutions: 1,
+      logGroup: lambdaLogGroup(this, "MigrationLogs"),
+      vpc: props.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      environment: {
+        SERVICE_NAME: "curriq-migrations",
+        DB_SECRET_ARN: props.dbSecret.secretArn,
+        DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
+      },
+    });
+    props.dbSecret.grantRead(migrationFn);
+    const migrationProvider = new customResources.Provider(
+      this,
+      "MigrationProvider",
+      { onEventHandler: migrationFn },
+    );
+    const migrationsResource = new cdk.CustomResource(
+      this,
+      "DatabaseMigrations",
+      {
+        serviceToken: migrationProvider.serviceToken,
+        properties: { MigrationVersion: latestMigrationVersion() },
+      },
+    );
+    migrationsResource.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
 
     this.generateChapterQuizFn = new lambdaNode.NodejsFunction(
       this,
@@ -191,6 +251,8 @@ export class IngestStack extends cdk.Stack {
         environment: {
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           PROVIDER_SECRET_ARN: props.providerSecret.secretArn,
+          EMBEDDING_CACHE_TABLE: props.embeddingCacheTable.tableName,
+          USERS_TABLE: props.usersTable.tableName,
           SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
         },
       },
@@ -218,6 +280,7 @@ export class IngestStack extends cdk.Stack {
           RAW_BUCKET: props.rawBucket.bucketName,
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           PROVIDER_SECRET_ARN: props.providerSecret.secretArn,
+          EMBEDDING_CACHE_TABLE: props.embeddingCacheTable.tableName,
           SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
           EMBED_TRANSCRIPT_FUNCTION_NAME: this.embedTranscriptFn.functionName,
           PROCESS_TRANSCRIPT_FUNCTION_NAME:
@@ -226,6 +289,8 @@ export class IngestStack extends cdk.Stack {
           GENERATE_CHAPTER_QUIZ_FUNCTION_NAME:
             this.generateChapterQuizFn.functionName,
           JOB_STATE_TABLE: props.jobStateTable.tableName,
+          ANALYTICS_TABLE: props.analyticsTable.tableName,
+          USERS_TABLE: props.usersTable.tableName,
         },
       },
     );
@@ -260,6 +325,7 @@ export class IngestStack extends cdk.Stack {
           RAW_BUCKET: props.rawBucket.bucketName,
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           PROVIDER_SECRET_ARN: props.providerSecret.secretArn,
+          EMBEDDING_CACHE_TABLE: props.embeddingCacheTable.tableName,
           MAX_PDF_BYTES: String(20 * 1024 * 1024),
           MAX_PDF_PAGES: "300",
           MAX_PDF_TEXT_CHARS: "2000000",
@@ -270,6 +336,8 @@ export class IngestStack extends cdk.Stack {
           GENERATE_CHAPTER_QUIZ_FUNCTION_NAME:
             this.generateChapterQuizFn.functionName,
           JOB_STATE_TABLE: props.jobStateTable.tableName,
+          ANALYTICS_TABLE: props.analyticsTable.tableName,
+          USERS_TABLE: props.usersTable.tableName,
         },
       },
     );
@@ -282,6 +350,8 @@ export class IngestStack extends cdk.Stack {
     this.generateChapterQuizFn.grantInvoke(this.generateCourseFromPdfFn);
     props.jobStateTable.grantReadWriteData(this.generateCourseFn);
     props.jobStateTable.grantReadWriteData(this.generateCourseFromPdfFn);
+    props.analyticsTable.grantWriteData(this.generateCourseFn);
+    props.analyticsTable.grantWriteData(this.generateCourseFromPdfFn);
 
     // Focus Areas V2: pre-generate remediation question sets (non-VPC).
     this.generateRemediationFn = new lambdaNode.NodejsFunction(
@@ -302,9 +372,11 @@ export class IngestStack extends cdk.Stack {
         environment: {
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           PROVIDER_SECRET_ARN: props.providerSecret.secretArn,
+          EMBEDDING_CACHE_TABLE: props.embeddingCacheTable.tableName,
           SEARCH_CHUNKS_FUNCTION_NAME: this.searchChunksFn.functionName,
           FOCUS_AREAS_TABLE: props.focusAreasTable.tableName,
           MISTAKES_TABLE: props.mistakesTable.tableName,
+          USERS_TABLE: props.usersTable.tableName,
         },
       },
     );
@@ -315,6 +387,15 @@ export class IngestStack extends cdk.Stack {
     props.mistakesTable.grantReadData(this.generateRemediationFn);
 
     for (const fn of [
+      this.generateChapterQuizFn,
+      this.generateCourseFn,
+      this.generateCourseFromPdfFn,
+      this.generateRemediationFn,
+    ]) {
+      props.usersTable.grantReadData(fn);
+    }
+
+    for (const fn of [
       this.embedTranscriptFn,
       this.generateChapterQuizFn,
       this.generateCourseFn,
@@ -322,6 +403,7 @@ export class IngestStack extends cdk.Stack {
       this.generateRemediationFn,
     ]) {
       props.providerSecret.grantRead(fn);
+      props.embeddingCacheTable.grantReadWriteData(fn);
     }
 
     props.dbSecret.grantRead(this.courseMetadataFn);

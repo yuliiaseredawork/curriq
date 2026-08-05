@@ -1,11 +1,14 @@
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { Client } from 'pg';
+import {
+  BedrockRuntimeClient,
+  InvokeModelCommand,
+} from "@aws-sdk/client-bedrock-runtime";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { createReusableClient } from "../storage/database";
 
-const bedrock = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? 'us-west-2' });
+const bedrock = new BedrockRuntimeClient({
+  region: process.env.AWS_REGION ?? "us-west-2",
+});
 const s3 = new S3Client({});
-const secrets = new SecretsManagerClient({});
 
 const CHUNK_TARGET_CHARS = 1600;
 
@@ -18,13 +21,13 @@ type Segment = {
 function chunk(segments: Segment[]) {
   const result: { text: string; start: number }[] = [];
 
-  let acc = '';
+  let acc = "";
   let start = segments[0]?.offset ?? segments[0]?.start ?? 0;
 
   for (const segment of segments) {
-    const text = segment.text ?? '';
+    const text = segment.text ?? "";
 
-    if ((acc + ' ' + text).length > CHUNK_TARGET_CHARS) {
+    if ((acc + " " + text).length > CHUNK_TARGET_CHARS) {
       if (acc.trim()) {
         result.push({ text: acc.trim(), start });
       }
@@ -32,7 +35,7 @@ function chunk(segments: Segment[]) {
       acc = text;
       start = segment.offset ?? segment.start ?? 0;
     } else {
-      acc += ' ' + text;
+      acc += " " + text;
     }
   }
 
@@ -46,28 +49,18 @@ function chunk(segments: Segment[]) {
 async function embed(text: string): Promise<number[]> {
   const res = await bedrock.send(
     new InvokeModelCommand({
-      modelId: 'amazon.titan-embed-text-v2:0',
+      modelId: "amazon.titan-embed-text-v2:0",
       body: JSON.stringify({
         inputText: text,
         dimensions: 1024,
         normalize: true,
       }),
-      contentType: 'application/json',
-      accept: 'application/json',
+      contentType: "application/json",
+      accept: "application/json",
     }),
   );
 
   return JSON.parse(new TextDecoder().decode(res.body)).embedding;
-}
-
-async function getDbConfig() {
-  const secret = await secrets.send(
-    new GetSecretValueCommand({
-      SecretId: process.env.DB_SECRET_ARN!,
-    }),
-  );
-
-  return JSON.parse(secret.SecretString!);
 }
 
 export const handler = async (event: {
@@ -85,20 +78,7 @@ export const handler = async (event: {
   const { segments } = JSON.parse(await obj.Body!.transformToString());
   const chunks = chunk(segments);
 
-  const db = await getDbConfig();
-
-  const client = new Client({
-    host: db.host,
-    port: db.port,
-    database: db.dbname,
-    user: db.username,
-    password: db.password,
-    ssl: {
-      rejectUnauthorized: false,
-    },
-  });
-
-  await client.connect();
+  const client = await createReusableClient();
 
   try {
     for (const c of chunks) {
@@ -114,7 +94,7 @@ export const handler = async (event: {
           event.videoId,
           Math.round(c.start),
           c.text,
-          `[${vector.join(',')}]`,
+          `[${vector.join(",")}]`,
         ],
       );
     }

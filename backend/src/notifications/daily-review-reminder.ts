@@ -2,10 +2,8 @@
 // short nudge email deep-linking into /session, and never send twice in the
 // same day (a REMINDER#DAILY record per user stores the last-sent date).
 //
-// Designed to be triggered once a day by any scheduler — EventBridge, Vercel
-// Cron, or plain curl — via POST /notifications/daily-reviews (see
-// api/routes/notifications.ts), or by invoking runDailyReviewReminders()
-// directly from a scheduled Lambda.
+// Invoked only by a scheduled EventBridge Lambda. Due cards are read through
+// the byDueDate GSI; no table scan or public cron endpoint is involved.
 //
 // Only users whose userId embeds a verified address (the `email:<address>`
 // form produced by auth) can receive email; `clerk:<sub>` users are skipped
@@ -16,12 +14,14 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
-  ScanCommand,
+  QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 
 import { isCardDue, type Flashcard } from "../storage/flashcards";
 import { createEmailService, type EmailService } from "../email/email-service";
 import { getProviderSecret } from "../config/provider-secrets";
+import { getAccount } from "../storage/accounts";
+import { createUnsubscribeToken } from "../email/unsubscribe-token";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const TABLE = () => process.env.FOCUS_AREAS_TABLE!;
@@ -72,6 +72,7 @@ export type ReminderEmail = { subject: string; text: string; html: string };
 export function composeReminderEmail(
   dueCount: number,
   appUrl: string,
+  unsubscribeUrl?: string,
 ): ReminderEmail {
   const concepts = `${dueCount} concept${dueCount === 1 ? "" : "s"}`;
   // Mirrors the in-app estimate (~30s per card, minimum 1 minute).
@@ -85,11 +86,17 @@ export function composeReminderEmail(
     "A quick review now keeps them fresh for the interview.",
     "",
     `Start your review: ${sessionUrl}`,
+    ...(unsubscribeUrl ? ["", `Unsubscribe: ${unsubscribeUrl}`] : []),
   ].join("\n");
   const html = [
     `<p style="font-size:16px;margin:0 0 8px"><strong>${concepts} due</strong> · ~${minutes} min</p>`,
     '<p style="color:#555;margin:0 0 16px">A quick review now keeps them fresh for the interview.</p>',
     `<p><a href="${sessionUrl}" style="display:inline-block;background:#3b82f6;color:#fff;text-decoration:none;border-radius:10px;padding:10px 18px;font-weight:600">Start your review</a></p>`,
+    ...(unsubscribeUrl
+      ? [
+          `<p style="font-size:12px;color:#777"><a href="${unsubscribeUrl}">Unsubscribe from review emails</a></p>`,
+        ]
+      : []),
   ].join("\n");
 
   return { subject, text, html };
@@ -105,17 +112,20 @@ export type ReminderRunSummary = {
   failures: number;
 };
 
-/** Scan every stored flashcard (paginated). Fine at early-user scale; swap for
- *  a GSI on nextReviewAt if the table grows large. */
-async function scanAllCards(): Promise<Flashcard[]> {
+/** Query only due flashcards through the sparse due-date GSI. */
+async function queryDueCards(now: Date): Promise<Flashcard[]> {
   const cards: Flashcard[] = [];
   let lastKey: Record<string, unknown> | undefined;
   do {
     const res = await ddb.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: TABLE(),
-        FilterExpression: "contains(sk, :cardMarker)",
-        ExpressionAttributeValues: { ":cardMarker": "#CARD#" },
+        IndexName: "byDueDate",
+        KeyConditionExpression: "dueBucket = :bucket AND nextReviewAt <= :now",
+        ExpressionAttributeValues: {
+          ":bucket": "FLASHCARD",
+          ":now": now.toISOString(),
+        },
         ExclusiveStartKey: lastKey,
       }),
     );
@@ -165,7 +175,7 @@ export async function runDailyReviewReminders(options?: {
     });
   const appUrl = options?.appUrl ?? process.env.APP_URL ?? "https://curriq.app";
 
-  const cards = await scanAllCards();
+  const cards = await queryDueCards(now);
   const dueByUser = countDueByUser(cards, now);
 
   const summary: ReminderRunSummary = {
@@ -177,8 +187,9 @@ export async function runDailyReviewReminders(options?: {
   };
 
   for (const [userId, dueCount] of dueByUser) {
-    const address = emailFromUserId(userId);
-    if (!address) {
+    const account = await getAccount(userId);
+    const address = account?.email ?? emailFromUserId(userId);
+    if (!address || account?.emailSubscribed === false) {
       summary.skippedNoEmail += 1;
       continue;
     }
@@ -190,8 +201,10 @@ export async function runDailyReviewReminders(options?: {
       continue;
     }
 
-    const message = composeReminderEmail(dueCount, appUrl);
     try {
+      const token = await createUnsubscribeToken(userId);
+      const unsubscribeUrl = `${appUrl.replace(/\/$/, "")}/unsubscribe?token=${encodeURIComponent(token)}`;
+      const message = composeReminderEmail(dueCount, appUrl, unsubscribeUrl);
       const result = await email.send({ to: address, ...message });
       if (result.ok) {
         await markSent(userId, now);

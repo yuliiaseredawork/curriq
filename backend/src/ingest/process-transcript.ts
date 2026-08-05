@@ -1,19 +1,7 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { Client } from 'pg';
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { createReusableClient } from "../storage/database";
 
 const s3 = new S3Client({});
-const secrets = new SecretsManagerClient({});
-
-async function getDbConfig() {
-  const secret = await secrets.send(
-    new GetSecretValueCommand({
-      SecretId: process.env.DB_SECRET_ARN!,
-    }),
-  );
-
-  return JSON.parse(secret.SecretString!);
-}
 
 export const handler = async (event: {
   courseId: string;
@@ -31,24 +19,13 @@ export const handler = async (event: {
 
   const { chunks } = JSON.parse(await obj.Body!.transformToString());
 
-  const db = await getDbConfig();
-
-  const client = new Client({
-    host: db.host,
-    port: db.port,
-    database: db.dbname,
-    user: db.username,
-    password: db.password,
-    ssl: { rejectUnauthorized: false },
-  });
-
-  await client.connect();
+  const client = await createReusableClient();
 
   try {
     for (const c of chunks) {
       const startSec = Number.isFinite(Number(c.start))
-      ? Math.round(Number(c.start))
-      : 0;
+        ? Math.round(Number(c.start))
+        : 0;
 
       await client.query(
         `
@@ -60,7 +37,7 @@ export const handler = async (event: {
           event.videoId,
           startSec,
           c.text,
-          `[${c.embedding.join(',')}]`,
+          `[${c.embedding.join(",")}]`,
         ],
       );
     }

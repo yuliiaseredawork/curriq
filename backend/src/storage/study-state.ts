@@ -1,9 +1,9 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   PutCommand,
   QueryCommand,
-} from '@aws-sdk/lib-dynamodb';
+} from "@aws-sdk/lib-dynamodb";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -73,10 +73,10 @@ export async function getChapterProgress(input: {
   const result = await ddb.send(
     new QueryCommand({
       TableName: process.env.PROGRESS_TABLE!,
-      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
       ExpressionAttributeValues: {
-        ':pk': `USER#${input.userId}`,
-        ':prefix': `COURSE#${input.courseId}#CHAPTER#${input.chapterId}#QUESTION#`,
+        ":pk": `USER#${input.userId}`,
+        ":prefix": `COURSE#${input.courseId}#CHAPTER#${input.chapterId}#QUESTION#`,
       },
     }),
   );
@@ -90,10 +90,10 @@ export async function getCourseProgress(input: {
   const result = await ddb.send(
     new QueryCommand({
       TableName: process.env.PROGRESS_TABLE!,
-      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
       ExpressionAttributeValues: {
-        ':pk': `USER#${input.userId}`,
-        ':prefix': `COURSE#${input.courseId}#`,
+        ":pk": `USER#${input.userId}`,
+        ":prefix": `COURSE#${input.courseId}#`,
       },
     }),
   );
@@ -108,10 +108,10 @@ export async function getCourseMistakes(input: {
   const result = await ddb.send(
     new QueryCommand({
       TableName: process.env.MISTAKES_TABLE!,
-      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
       ExpressionAttributeValues: {
-        ':pk': `USER#${input.userId}`,
-        ':prefix': `COURSE#${input.courseId}#`,
+        ":pk": `USER#${input.userId}`,
+        ":prefix": `COURSE#${input.courseId}#`,
       },
     }),
   );

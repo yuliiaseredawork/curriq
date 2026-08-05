@@ -6,8 +6,9 @@ import {
   updateCourseStatus,
   transitionCourseStatus,
   findCourseBySourceKey,
+  exportCoursesForUser,
+  deleteCoursesForUser,
   upsertCourse,
-  runMigrations,
   type SourceType,
 } from "../storage/courses-repository";
 
@@ -31,7 +32,6 @@ type Event =
       sourceKey?: string | null;
       targetDate?: string | null;
     }
-  | { action: "migrate" }
   | {
       action: "updateStatus";
       courseId: string;
@@ -63,14 +63,11 @@ type Event =
       courseId: string;
       userId: string;
     }
-  | { action: "listStuck"; olderThanMinutes: number };
+  | { action: "listStuck"; olderThanMinutes: number }
+  | { action: "exportUser"; userId: string }
+  | { action: "deleteUser"; userId: string };
 
 export const handler = async (event: Event) => {
-  if (event.action === "migrate") {
-    await runMigrations();
-    return { status: "OK", migrated: true };
-  }
-
   if (event.action === "upsert") {
     await upsertCourse(event);
 
@@ -140,6 +137,14 @@ export const handler = async (event: Event) => {
 
   if (event.action === "listStuck") {
     return { courses: await listStuckCourses(event.olderThanMinutes) };
+  }
+
+  if (event.action === "exportUser") {
+    return { courses: await exportCoursesForUser(event.userId) };
+  }
+
+  if (event.action === "deleteUser") {
+    return { courses: await deleteCoursesForUser(event.userId) };
   }
 
   throw new Error("Unsupported action");

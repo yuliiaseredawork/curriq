@@ -23,17 +23,14 @@ import { applySessionResult } from "../../courses/mastery";
 import { generateFlashcards } from "../../agents/flashcard-writer";
 import { validateFlashcardAnswer } from "../../courses/flashcard-validation";
 import type { ReviewQuality } from "../../courses/sm2";
-import { getOpenAiClient } from "../../config/provider-secrets";
+import { embedText } from "../../ai/embeddings";
+import { recordProductEvent } from "../../analytics/events";
 
 export const flashcards = new Hono();
 const lambda = new LambdaClient({});
 
 async function searchChunks(courseId: string, query: string, limit: number) {
-  const embedding = (
-    await (
-      await getOpenAiClient()
-    ).embeddings.create({ model: "text-embedding-3-small", input: query })
-  ).data[0].embedding;
+  const embedding = await embedText(query);
   const res = await lambda.send(
     new InvokeCommand({
       FunctionName: process.env.SEARCH_CHUNKS_FUNCTION_NAME!,
@@ -285,6 +282,11 @@ flashcards.post("/flashcards/:cardId/rate", async (c) => {
     const quality = RATING_TO_QUALITY[rating];
     const updated = applyCardReview(card, quality);
     await putCard(updated);
+    await recordProductEvent("review_completed", userId, {
+      kind: "flashcard",
+      quality,
+      intervalDays: updated.intervalDays,
+    });
 
     // Aggregate into concept mastery (score/state only; cards own the schedule).
     let masteryScore: number | undefined;

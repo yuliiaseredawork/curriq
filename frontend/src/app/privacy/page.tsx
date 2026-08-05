@@ -2,8 +2,6 @@ import Link from "next/link";
 import { pageShell, readingContainer, ghostLink } from "@/lib/ui";
 
 export const metadata = { title: "Privacy — Curriq" };
-
-// Placeholder policy for the beta. Replace with a reviewed policy before GA.
 export default function PrivacyPage() {
   return (
     <main className={pageShell}>
@@ -13,27 +11,47 @@ export default function PrivacyPage() {
         </Link>
         <h1 className="text-3xl font-bold tracking-tight">Privacy</h1>
         <div className="max-w-prose space-y-4 text-sm text-gray-300">
+          <p>Last updated: August 5, 2026.</p>
           <p>
-            Curriq is in beta. We store the content you add (video transcripts,
-            PDFs), the learning material generated from it, and your practice
-            history so the product can schedule your reviews.
+            Curriq stores your Clerk account identifier and email address,
+            imported video URLs, transcripts and PDFs, generated learning
+            material, practice history, review schedules, product events, and
+            subscription status. We use this data to provide, secure, support,
+            and improve the learning service.
           </p>
           <p>
-            We don’t sell your data, and we don’t share it with third parties
-            for advertising.
+            Clerk processes authentication; AWS hosts application data and
+            malware scanning; OpenAI and Anthropic process content needed for
+            generation; Resend sends opted-in reminders; and Stripe processes
+            subscriptions. We do not sell personal data or use it for
+            third-party advertising.
           </p>
           <p>
-            To delete your account and data, or for any privacy question, email{" "}
+            Active course data remains until you delete your account. Abandoned
+            uploads expire after one day, raw source artifacts after 90 days,
+            old object versions after 30 days, analytics after 400 days, and
+            encrypted database backups after at most 35 days. Legal,
+            fraud-prevention, and billing records may be retained where
+            required.
+          </p>
+          <p>
+            In{" "}
+            <Link href="/account" className="text-blue-300 hover:text-blue-200">
+              Account
+            </Link>
+            , you can export your data, unsubscribe from reminder emails, or
+            permanently delete your account and live data. Deletions age out of
+            encrypted backups within the backup window.
+          </p>
+          <p>
+            For access, correction, deletion, or privacy questions, contact{" "}
             <a
-              href="mailto:hello@curriq.app"
+              href="mailto:privacy@curriq.app"
               className="text-blue-300 hover:text-blue-200"
             >
-              hello@curriq.app
+              privacy@curriq.app
             </a>
             .
-          </p>
-          <p className="text-gray-500">
-            A full privacy policy will be published before general availability.
           </p>
         </div>
       </div>

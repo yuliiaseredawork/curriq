@@ -6,7 +6,7 @@ import { saveOutline } from "../../storage/course-artifacts";
 import { callCourseMetadata } from "../../courses/course-metadata-client";
 import { loadCourseManifest } from "../../storage/course-artifacts";
 import { requireCourseAccess } from "../../auth/course-access";
-import { getOpenAiClient } from "../../config/provider-secrets";
+import { embedText } from "../../ai/embeddings";
 
 const Input = z.object({
   courseId: z.string(),
@@ -16,17 +16,6 @@ const Input = z.object({
 
 const lambda = new LambdaClient({});
 
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  return res.data[0].embedding;
-}
-
 export const outline = new Hono();
 
 outline.post("/", async (c) => {
@@ -35,7 +24,7 @@ outline.post("/", async (c) => {
   const { userId } = await requireCourseAccess(c, input.courseId);
 
   const query = input.query ?? "main topics and concepts in this course";
-  const embedding = await embed(query);
+  const embedding = await embedText(query);
 
   const response = await lambda.send(
     new InvokeCommand({

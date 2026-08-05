@@ -15,21 +15,13 @@ import {
 import { generateOutlineFromChunks } from "../agents/outliner";
 import { callCourseMetadata } from "./course-metadata-client";
 import { toUserSafeReason } from "./failure-reason";
-import { getOpenAiClient } from "../config/provider-secrets";
+import { embedText } from "../ai/embeddings";
 import { runIdempotentStage } from "../jobs/stage-idempotency";
+import { enterLearnerContext } from "../observability/logger";
+import { recordProductEvent } from "../analytics/events";
+import { isAccountDeleted } from "../storage/accounts";
 
 const lambda = new LambdaClient({});
-
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  return res.data[0].embedding;
-}
 
 async function invokeJson(functionName: string, payload: unknown) {
   const res = await lambda.send(
@@ -56,6 +48,7 @@ async function invokeJson(functionName: string, payload: unknown) {
  */
 async function fanOutChapterQuizzes(
   courseId: string,
+  userId: string,
   chapters: Array<{ id: string }>,
 ) {
   const fnName = process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME;
@@ -74,7 +67,7 @@ async function fanOutChapterQuizzes(
           FunctionName: fnName,
           InvocationType: InvocationType.Event,
           Payload: Buffer.from(
-            JSON.stringify({ courseId, chapterId: chapter.id }),
+            JSON.stringify({ courseId, userId, chapterId: chapter.id }),
           ),
         }),
       );
@@ -97,7 +90,7 @@ async function searchChunks(input: {
   query: string;
   limit: number;
 }) {
-  const embedding = await embed(input.query);
+  const embedding = await embedText(input.query);
 
   return invokeJson(process.env.SEARCH_CHUNKS_FUNCTION_NAME!, {
     courseId: input.courseId,
@@ -116,6 +109,8 @@ export const handler = async (event: {
   videoId?: string;
 }) => {
   const { courseId, userId } = event;
+  if (await isAccountDeleted(userId)) return { courseId, status: "CANCELED" };
+  enterLearnerContext(userId);
   const sourceUrl = event.sourceUrl ?? event.playlistUrl!;
   const parsed = event.sourceType
     ? {
@@ -278,10 +273,13 @@ export const handler = async (event: {
     });
 
     console.log("[generate-course] status → READY", { courseId });
+    await recordProductEvent("generation_ready", userId, {
+      sourceType: parsed.sourceType,
+    });
 
     // Course is READY (outline available). Generate quizzes in the background
     // without blocking — per-chapter status is tracked separately.
-    await fanOutChapterQuizzes(courseId, outline.chapters);
+    await fanOutChapterQuizzes(courseId, userId, outline.chapters);
 
     return {
       courseId,
@@ -292,6 +290,9 @@ export const handler = async (event: {
     const rawError = String(e?.message ?? e);
     const errorMessage = toUserSafeReason(e);
     console.error("[generate-course] FAILED", { courseId, error: rawError });
+    await recordProductEvent("generation_failed", userId, {
+      sourceType: parsed.sourceType,
+    });
 
     try {
       await callCourseMetadata({

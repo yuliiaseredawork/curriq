@@ -12,26 +12,17 @@ import {
   saveQuiz,
   updateChapterQuizStatus,
 } from "../storage/course-artifacts";
-import { getOpenAiClient } from "../config/provider-secrets";
+import { embedText } from "../ai/embeddings";
+import { isAccountDeleted } from "../storage/accounts";
 
 const lambda = new LambdaClient({});
-
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-  return res.data[0].embedding;
-}
 
 async function searchChunks(input: {
   courseId: string;
   query: string;
   limit: number;
 }) {
-  const embedding = await embed(input.query);
+  const embedding = await embedText(input.query);
 
   const response = await lambda.send(
     new InvokeCommand({
@@ -58,8 +49,12 @@ async function searchChunks(input: {
 export const handler = async (event: {
   courseId: string;
   chapterId: string;
+  userId?: string;
 }) => {
   const { courseId, chapterId } = event;
+  if (event.userId && (await isAccountDeleted(event.userId))) {
+    return { courseId, chapterId, status: "CANCELED" };
+  }
   console.log("[generate-chapter-quiz] start", { courseId, chapterId });
 
   try {

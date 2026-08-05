@@ -32,6 +32,7 @@ import { toUserSafeReason } from "../../courses/failure-reason";
 import { listMastery } from "../../storage/focus-areas";
 import { blendProgress } from "../../courses/progress";
 import { enqueueCourseJob } from "../../jobs/course-jobs";
+import { recordProductEvent } from "../../analytics/events";
 
 type RouteEnv = { Variables: { correlationId: string } };
 export const courses = new Hono<RouteEnv>();
@@ -145,6 +146,13 @@ courses.post("/", async (c) => {
     videoId: parsed.videoId,
   });
 
+  await recordProductEvent("activation", userId, {
+    sourceType: parsed.sourceType,
+  });
+  await recordProductEvent("course_imported", userId, {
+    sourceType: parsed.sourceType,
+  });
+
   console.log("[POST /courses] GenerateCourseFn invoked async", { courseId });
 
   return c.json(
@@ -243,6 +251,10 @@ courses.post("/:courseId/retry", async (c) => {
         409,
       );
     }
+
+    await recordProductEvent("generation_retried", userId, {
+      sourceType: plan.pipeline,
+    });
 
     if (plan.pipeline === "PDF") {
       await enqueueCourseJob({
@@ -569,7 +581,7 @@ courses.post("/:courseId/chapters/:chapterId/quiz/retry", async (c) => {
   const chapterId = c.req.param("chapterId");
 
   try {
-    await requireCourseAccess(c, courseId);
+    const { userId } = await requireCourseAccess(c, courseId);
 
     const outline = await loadOutline(courseId);
     const exists = (outline.chapters ?? []).some(
@@ -587,7 +599,7 @@ courses.post("/:courseId/chapters/:chapterId/quiz/retry", async (c) => {
       new InvokeCommand({
         FunctionName: process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME!,
         InvocationType: InvocationType.Event,
-        Payload: Buffer.from(JSON.stringify({ courseId, chapterId })),
+        Payload: Buffer.from(JSON.stringify({ courseId, chapterId, userId })),
       }),
     );
 

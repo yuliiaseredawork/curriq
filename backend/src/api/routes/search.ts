@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { requireCourseAccess } from "../../auth/course-access";
-import { getOpenAiClient } from "../../config/provider-secrets";
+import { embedText } from "../../ai/embeddings";
 
 const Input = z.object({
   courseId: z.string(),
@@ -12,17 +12,6 @@ const Input = z.object({
 
 const lambda = new LambdaClient({});
 
-async function embed(text: string): Promise<number[]> {
-  const res = await (
-    await getOpenAiClient()
-  ).embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  return res.data[0].embedding;
-}
-
 export const search = new Hono();
 
 search.post("/", async (c) => {
@@ -30,7 +19,7 @@ search.post("/", async (c) => {
   const input = Input.parse(body);
   await requireCourseAccess(c, input.courseId);
 
-  const embedding = await embed(input.query);
+  const embedding = await embedText(input.query);
 
   const response = await lambda.send(
     new InvokeCommand({

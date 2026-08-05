@@ -1,7 +1,7 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getPlaylistVideos, extractPlaylistId } from '../youtube/playlist';
-import { parseYouTubeUrl } from '../youtube/parse-youtube-url';
-import { fetchTranscriptFromSearchApi } from '../transcripts/searchapi-transcripts';
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getPlaylistVideos, extractPlaylistId } from "../youtube/playlist";
+import { parseYouTubeUrl } from "../youtube/parse-youtube-url";
+import { fetchTranscriptFromSearchApi } from "../transcripts/searchapi-transcripts";
 
 const s3 = new S3Client({});
 
@@ -16,7 +16,7 @@ const s3 = new S3Client({});
  */
 export async function startCourseIngestion(input: {
   courseId: string;
-  sourceType?: 'YOUTUBE_PLAYLIST' | 'YOUTUBE_VIDEO';
+  sourceType?: "YOUTUBE_PLAYLIST" | "YOUTUBE_VIDEO";
   sourceUrl?: string;
   playlistUrl?: string; // legacy alias for sourceUrl
   playlistId?: string;
@@ -24,13 +24,17 @@ export async function startCourseIngestion(input: {
 }) {
   const url = input.sourceUrl ?? input.playlistUrl;
   const parsed = input.sourceType
-    ? { sourceType: input.sourceType, playlistId: input.playlistId, videoId: input.videoId }
+    ? {
+        sourceType: input.sourceType,
+        playlistId: input.playlistId,
+        videoId: input.videoId,
+      }
     : parseYouTubeUrl(url!);
 
   let sourceId: string;
   let videoIds: string[];
 
-  if (parsed.sourceType === 'YOUTUBE_VIDEO') {
+  if (parsed.sourceType === "YOUTUBE_VIDEO") {
     const videoId = parsed.videoId ?? parseYouTubeUrl(url!).videoId!;
     videoIds = [videoId];
     sourceId = `single-video-${videoId}`;
@@ -49,7 +53,7 @@ export async function startCourseIngestion(input: {
       if (!segments?.length) {
         results.push({
           videoId,
-          status: 'NO_TRANSCRIPT',
+          status: "NO_TRANSCRIPT",
         });
         continue;
       }
@@ -66,7 +70,7 @@ export async function startCourseIngestion(input: {
             videoId,
             segments,
           }),
-          ContentType: 'application/json',
+          ContentType: "application/json",
         }),
       );
 
@@ -78,14 +82,14 @@ export async function startCourseIngestion(input: {
 
       results.push({
         videoId,
-        status: 'OK',
+        status: "OK",
         key,
         segmentCount: segments.length,
       });
     } catch (e: any) {
       results.push({
         videoId,
-        status: 'ERROR',
+        status: "ERROR",
         error: String(e?.message ?? e),
       });
     }

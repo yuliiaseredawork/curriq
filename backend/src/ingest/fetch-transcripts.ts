@@ -1,6 +1,6 @@
-import { YoutubeTranscript } from 'youtube-transcript';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { z } from 'zod';
+import { YoutubeTranscript } from "youtube-transcript";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { z } from "zod";
 
 const Input = z.object({
   videoId: z.string(),
@@ -14,11 +14,11 @@ export const handler = async (raw: unknown) => {
 
   try {
     const segments = await YoutubeTranscript.fetchTranscript(videoId, {
-      lang: 'en',
+      lang: "en",
     });
 
     if (!segments?.length) {
-      return { videoId, status: 'NO_TRANSCRIPT' as const };
+      return { videoId, status: "NO_TRANSCRIPT" as const };
     }
 
     await s3.send(
@@ -26,19 +26,19 @@ export const handler = async (raw: unknown) => {
         Bucket: process.env.RAW_BUCKET!,
         Key: `playlists/${playlistId}/transcripts/${videoId}.json`,
         Body: JSON.stringify({ videoId, segments }),
-        ContentType: 'application/json',
+        ContentType: "application/json",
       }),
     );
 
     return {
       videoId,
-      status: 'OK' as const,
+      status: "OK" as const,
       segmentCount: segments.length,
     };
   } catch (e: any) {
     return {
       videoId,
-      status: 'ERROR' as const,
+      status: "ERROR" as const,
       error: String(e?.message ?? e),
     };
   }

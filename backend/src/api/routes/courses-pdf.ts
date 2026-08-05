@@ -14,6 +14,7 @@ import { getCurrentUserId, UnauthorizedError } from "../../auth/current-user";
 import { callCourseMetadata } from "../../courses/course-metadata-client";
 import { pdfSourceKey, dedupDecision } from "../../courses/source-key";
 import { enqueueCourseJob } from "../../jobs/course-jobs";
+import { recordProductEvent } from "../../analytics/events";
 
 type RouteEnv = { Variables: { correlationId: string } };
 export const coursesPdf = new Hono<RouteEnv>();
@@ -232,6 +233,11 @@ coursesPdf.post("/:courseId/pdf/complete", async (c) => {
       fileKey,
       fileName,
       correlationId: c.get("correlationId"),
+    });
+
+    await recordProductEvent("activation", userId, { sourceType: "PDF" });
+    await recordProductEvent("course_imported", userId, {
+      sourceType: "PDF",
     });
 
     console.log(JSON.stringify({ event: "pdf.processing_queued", courseId }));

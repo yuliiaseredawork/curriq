@@ -42,7 +42,7 @@ export async function getPlaylistVideos(
       url.searchParams.set("pageToken", pageToken);
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
 
     if (!response.ok) {
       const text = await response.text();

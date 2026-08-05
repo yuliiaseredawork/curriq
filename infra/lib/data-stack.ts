@@ -17,6 +17,7 @@ interface Props extends cdk.StackProps {
 
 export class DataStack extends cdk.Stack {
   public readonly db: rds.DatabaseInstance;
+  public readonly dbProxy: rds.DatabaseProxy;
   public readonly dbSecret: sm.ISecret;
   public readonly rawBucket: s3.Bucket;
   public readonly processedBucket: s3.Bucket;
@@ -30,6 +31,8 @@ export class DataStack extends cdk.Stack {
   public readonly focusAreasTable: ddb.Table;
   public readonly usageTable: ddb.Table;
   public readonly jobStateTable: ddb.Table;
+  public readonly analyticsTable: ddb.Table;
+  public readonly embeddingCacheTable: ddb.Table;
   public readonly providerSecret: sm.ISecret;
 
   constructor(scope: Construct, id: string, props: Props) {
@@ -48,8 +51,13 @@ export class DataStack extends cdk.Stack {
         ec2.InstanceSize.MICRO,
       ),
       allocatedStorage: 20,
+      maxAllocatedStorage: 100,
       storageEncrypted: true,
-      deletionProtection: props.stage === "prod",
+      backupRetention: cdk.Duration.days(props.stage === "prod" ? 35 : 7),
+      deleteAutomatedBackups: false,
+      copyTagsToSnapshot: true,
+      preferredBackupWindow: "05:00-06:00",
+      deletionProtection: props.stage !== "dev",
       credentials: rds.Credentials.fromGeneratedSecret("postgres"),
       databaseName: "courseforge",
       publiclyAccessible: false,
@@ -57,6 +65,16 @@ export class DataStack extends cdk.Stack {
     });
 
     this.dbSecret = this.db.secret!;
+    this.dbProxy = this.db.addProxy("Proxy", {
+      secrets: [this.dbSecret],
+      vpc: props.vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      requireTLS: true,
+      borrowTimeout: cdk.Duration.seconds(30),
+      idleClientTimeout: cdk.Duration.minutes(5),
+      maxConnectionsPercent: 80,
+      maxIdleConnectionsPercent: 20,
+    });
     this.providerSecret = sm.Secret.fromSecretNameV2(
       this,
       "ProviderSecrets",
@@ -68,10 +86,18 @@ export class DataStack extends cdk.Stack {
       ec2.Port.tcp(5432),
       "Allow Postgres access from VPC",
     );
+    this.dbProxy.connections.allowFrom(
+      ec2.Peer.ipv4(props.vpc.vpcCidrBlock),
+      ec2.Port.tcp(5432),
+      "Allow private workloads to use the RDS Proxy",
+    );
 
     this.rawBucket = new s3.Bucket(this, "Raw", {
       lifecycleRules: [
-        { expiration: cdk.Duration.days(90) },
+        {
+          expiration: cdk.Duration.days(90),
+          noncurrentVersionExpiration: cdk.Duration.days(30),
+        },
         {
           id: "DeleteAbandonedPdfUploads",
           prefix: "pdf-uploads/",
@@ -81,6 +107,7 @@ export class DataStack extends cdk.Stack {
       ],
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      versioned: true,
       // Allow browser PUT to presigned URLs (PDF upload from the frontend).
       cors: [
         {
@@ -95,17 +122,35 @@ export class DataStack extends cdk.Stack {
     this.processedBucket = new s3.Bucket(this, "Processed", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      versioned: true,
+      lifecycleRules: [
+        {
+          id: "ExpireOldProcessedVersions",
+          noncurrentVersionExpiration: cdk.Duration.days(30),
+        },
+      ],
     });
 
     this.usersTable = new ddb.Table(this, "Users", {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      timeToLiveAttribute: "expiresAt",
+    });
+    this.usersTable.addGlobalSecondaryIndex({
+      indexName: "byStripeCustomer",
+      partitionKey: {
+        name: "stripeCustomerId",
+        type: ddb.AttributeType.STRING,
+      },
+      projectionType: ddb.ProjectionType.ALL,
     });
 
     this.coursesTable = new ddb.Table(this, "Courses", {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
     this.coursesTable.addGlobalSecondaryIndex({
@@ -117,24 +162,28 @@ export class DataStack extends cdk.Stack {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
     this.quizzesTable = new ddb.Table(this, "Quizzes", {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
     this.progressTable = new ddb.Table(this, "Progress", {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
     this.mistakesTable = new ddb.Table(this, "Mistakes", {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
     this.mistakesTable.addGlobalSecondaryIndex({
@@ -149,6 +198,13 @@ export class DataStack extends cdk.Stack {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+    });
+    this.focusAreasTable.addGlobalSecondaryIndex({
+      indexName: "byDueDate",
+      partitionKey: { name: "dueBucket", type: ddb.AttributeType.STRING },
+      sortKey: { name: "nextReviewAt", type: ddb.AttributeType.STRING },
+      projectionType: ddb.ProjectionType.ALL,
     });
 
     this.usageTable = new ddb.Table(this, "UsageLimits", {
@@ -162,6 +218,27 @@ export class DataStack extends cdk.Stack {
     this.jobStateTable = new ddb.Table(this, "CourseJobStages", {
       partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       sortKey: { name: "sk", type: ddb.AttributeType.STRING },
+      billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "expiresAt",
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+    });
+
+    this.analyticsTable = new ddb.Table(this, "AnalyticsEvents", {
+      partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
+      sortKey: { name: "sk", type: ddb.AttributeType.STRING },
+      billingMode: ddb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "expiresAt",
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+    });
+    this.analyticsTable.addGlobalSecondaryIndex({
+      indexName: "byEventTime",
+      partitionKey: { name: "eventName", type: ddb.AttributeType.STRING },
+      sortKey: { name: "occurredAt", type: ddb.AttributeType.STRING },
+      projectionType: ddb.ProjectionType.ALL,
+    });
+
+    this.embeddingCacheTable = new ddb.Table(this, "EmbeddingCache", {
+      partitionKey: { name: "pk", type: ddb.AttributeType.STRING },
       billingMode: ddb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: "expiresAt",
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -227,5 +304,18 @@ export class DataStack extends cdk.Stack {
     );
     malwarePlan.node.addDependency(malwareRole);
     malwarePlan.node.addDependency(this.rawBucket);
+
+    new cdk.CfnOutput(this, "RawBucketName", {
+      value: this.rawBucket.bucketName,
+    });
+    new cdk.CfnOutput(this, "ProcessedBucketName", {
+      value: this.processedBucket.bucketName,
+    });
+    new cdk.CfnOutput(this, "UsersTableName", {
+      value: this.usersTable.tableName,
+    });
+    new cdk.CfnOutput(this, "RdsInstanceIdentifier", {
+      value: this.db.instanceIdentifier,
+    });
   }
 }

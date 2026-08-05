@@ -45,7 +45,11 @@ async function increment(input: {
   }
 }
 
-export async function enforceRequestLimit(userId: string, now = new Date()) {
+export async function enforceRequestLimit(
+  userId: string,
+  now = new Date(),
+  maximum = Number(process.env.REQUESTS_PER_5_MINUTES ?? 300),
+) {
   const windowSeconds = 300;
   const epochSeconds = Math.floor(now.getTime() / 1000);
   const window = Math.floor(epochSeconds / windowSeconds);
@@ -53,14 +57,18 @@ export async function enforceRequestLimit(userId: string, now = new Date()) {
     userId,
     key: `REQUESTS#${window}`,
     field: "requestCount",
-    maximum: Number(process.env.REQUESTS_PER_5_MINUTES ?? 300),
+    maximum,
     expiresAt: (window + 1) * windowSeconds + 3600,
     retryAfterSeconds: windowSeconds - (epochSeconds % windowSeconds),
     code: "RATE_LIMITED",
   });
 }
 
-export async function enforceDailyAiQuota(userId: string, now = new Date()) {
+export async function enforceDailyAiQuota(
+  userId: string,
+  now = new Date(),
+  maximum = Number(process.env.DAILY_AI_REQUESTS_PER_USER ?? 20),
+) {
   const day = now.toISOString().slice(0, 10);
   const tomorrow = new Date(`${day}T00:00:00.000Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -68,7 +76,7 @@ export async function enforceDailyAiQuota(userId: string, now = new Date()) {
     userId,
     key: `AI#${day}`,
     field: "aiRequests",
-    maximum: Number(process.env.DAILY_AI_REQUESTS_PER_USER ?? 50),
+    maximum,
     expiresAt: Math.floor(tomorrow.getTime() / 1000) + 86400,
     retryAfterSeconds: Math.max(
       1,

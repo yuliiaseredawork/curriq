@@ -387,5 +387,83 @@ export function createApiClient(getToken: GetToken) {
       if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
+
+    async recordProductEvent(
+      event: "session_started" | "session_completed",
+      properties: Record<string, string | number | boolean> = {},
+    ) {
+      const res = await fetch(`${API_URL}/analytics/events`, {
+        method: "POST",
+        headers: await h(),
+        body: JSON.stringify({ event, properties }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+    },
+
+    async submitFeedback(input: {
+      kind: "feedback" | "support";
+      message: string;
+      path?: string;
+    }) {
+      const res = await fetch(`${API_URL}/feedback`, {
+        method: "POST",
+        headers: await h(),
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async getAccount() {
+      const res = await fetch(`${API_URL}/account`, { headers: await h() });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async exportAccountData() {
+      const res = await fetch(`${API_URL}/account/export`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.blob();
+    },
+
+    async setEmailSubscribed(subscribed: boolean) {
+      const res = await fetch(`${API_URL}/account/email-preferences`, {
+        method: "POST",
+        headers: await h(),
+        body: JSON.stringify({ subscribed }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async deleteAccount() {
+      const res = await fetch(`${API_URL}/account`, {
+        method: "DELETE",
+        headers: await h(),
+        body: JSON.stringify({ confirmation: "DELETE" }),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.json();
+    },
+
+    async startSubscriptionCheckout() {
+      const res = await fetch(`${API_URL}/billing/checkout`, {
+        method: "POST",
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.json() as Promise<{ url: string }>;
+    },
+
+    async openBillingPortal() {
+      const res = await fetch(`${API_URL}/billing/portal`, {
+        method: "POST",
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+      return res.json() as Promise<{ url: string }>;
+    },
   };
 }

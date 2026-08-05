@@ -511,6 +511,9 @@ export default function Home() {
                 {userEmail}
               </p>
             )}
+            <a href="/account" className={ghostLink}>
+              Account
+            </a>
             <button
               className={ghostLink}
               onClick={() => signOut({ redirectUrl: "/sign-in" })}

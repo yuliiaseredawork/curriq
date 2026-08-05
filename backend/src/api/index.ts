@@ -12,7 +12,6 @@ import { focusAreas } from "./routes/focus-areas";
 import { reviews } from "./routes/reviews";
 import { flashcards } from "./routes/flashcards";
 import { session } from "./routes/session";
-import { notifications } from "./routes/notifications";
 import { UnauthorizedError } from "../auth/current-user";
 import { CourseAccessDeniedError } from "../auth/course-access";
 import { ZodError } from "zod";
@@ -22,12 +21,27 @@ import {
   RateLimitError,
 } from "./middleware/usage-limits";
 import { correlationId, emitMetric, logger } from "../observability/logger";
-import { getCurrentUserId } from "../auth/current-user";
+import { getCurrentUserIdentity } from "../auth/current-user";
+import {
+  ensureAccount,
+  getAccount,
+  isAccountDeleted,
+} from "../storage/accounts";
+import { emailPreferences } from "./routes/email-preferences";
+import { account } from "./routes/account";
+import { withLearnerContext } from "../observability/logger";
+import { analytics } from "./routes/analytics";
+import { billing } from "./routes/billing";
 
 type AppEnv = {
   Variables: {
     correlationId: string;
     userId: string;
+    currentUser: {
+      userId: string;
+      clerkUserId: string;
+      email?: string;
+    };
   };
 };
 
@@ -47,6 +61,9 @@ app.onError((err, c) => {
   if (err instanceof RateLimitError) {
     c.header("Retry-After", String(err.retryAfterSeconds));
     return c.json({ error: err.code }, 429);
+  }
+  if (err.message === "ADMIN_ACCESS_DENIED") {
+    return c.json({ error: "FORBIDDEN" }, 403);
   }
   if (err instanceof ZodError) {
     return c.json({ error: "INVALID_REQUEST", issues: err.issues }, 400);
@@ -69,7 +86,7 @@ app.use(
   "*",
   cors({
     origin: allowedOrigins,
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization", "X-Correlation-Id"],
     exposeHeaders: ["X-Correlation-Id"],
   }),
@@ -99,12 +116,34 @@ app.use("*", async (c, next) => {
   }
 });
 
-const publicPaths = new Set(["/health", "/notifications/daily-reviews"]);
+const publicPaths = new Set([
+  "/health",
+  "/email/unsubscribe",
+  "/billing/webhook",
+]);
 app.use("*", async (c, next) => {
   if (c.req.method === "OPTIONS" || publicPaths.has(c.req.path)) return next();
 
-  const userId = await getCurrentUserId(c);
-  await enforceRequestLimit(userId);
+  const identity = await getCurrentUserIdentity(c);
+  const userId = identity.userId;
+  if (await isAccountDeleted(userId)) {
+    if (c.req.method === "DELETE" && c.req.path === "/account") {
+      return withLearnerContext(userId, next);
+    }
+    throw new UnauthorizedError("ACCOUNT_DELETED");
+  }
+  await ensureAccount(identity);
+  const accountRecord = await getAccount(userId);
+  const paid =
+    accountRecord?.plan === "PRO" &&
+    accountRecord.subscriptionStatus === "ACTIVE";
+  await enforceRequestLimit(
+    userId,
+    new Date(),
+    paid
+      ? Number(process.env.PRO_REQUESTS_PER_5_MINUTES ?? 1000)
+      : Number(process.env.REQUESTS_PER_5_MINUTES ?? 300),
+  );
 
   const expensive =
     c.req.method === "POST" &&
@@ -112,13 +151,26 @@ app.use("*", async (c, next) => {
       c.req.path,
     ) ||
       /^\/courses\/[^/]+\/(?:retry|pdf\/complete)$/.test(c.req.path));
-  if (expensive) await enforceDailyAiQuota(userId);
-  return next();
+  if (expensive) {
+    await enforceDailyAiQuota(
+      userId,
+      new Date(),
+      paid
+        ? Number(process.env.PRO_DAILY_AI_REQUESTS ?? 500)
+        : Number(process.env.DAILY_AI_REQUESTS_PER_USER ?? 20),
+    );
+  }
+  return withLearnerContext(userId, next);
 });
 
 app.get("/health", (c) => {
   return c.json({ status: "ok" });
 });
+
+app.route("/", emailPreferences);
+app.route("/", account);
+app.route("/", analytics);
+app.route("/", billing);
 
 app.route("/courses", courses);
 app.route("/courses", coursesPdf);
@@ -131,6 +183,5 @@ app.route("/outline", outline);
 app.route("/quizzes", quizzes);
 app.route("/study", study);
 app.route("/practice", practice);
-app.route("/", notifications);
 
 export const handler = handle(app);

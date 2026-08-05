@@ -1,35 +1,11 @@
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { Client } from 'pg';
-
-const secrets = new SecretsManagerClient({});
-
-async function getDbConfig() {
-  const secret = await secrets.send(
-    new GetSecretValueCommand({
-      SecretId: process.env.DB_SECRET_ARN!,
-    }),
-  );
-
-  return JSON.parse(secret.SecretString!);
-}
+import { createReusableClient } from "../storage/database";
 
 export const handler = async (event: {
   courseId: string;
   embedding: number[];
   limit?: number;
 }) => {
-  const db = await getDbConfig();
-
-  const client = new Client({
-    host: db.host,
-    port: db.port,
-    database: db.dbname,
-    user: db.username,
-    password: db.password,
-    ssl: { rejectUnauthorized: false },
-  });
-
-  await client.connect();
+  const client = await createReusableClient();
 
   try {
     const result = await client.query(
@@ -47,11 +23,7 @@ export const handler = async (event: {
       ORDER BY embedding <=> $1::vector
       LIMIT $3
       `,
-      [
-        `[${event.embedding.join(',')}]`,
-        event.courseId,
-        event.limit ?? 5,
-      ],
+      [`[${event.embedding.join(",")}]`, event.courseId, event.limit ?? 5],
     );
 
     return {

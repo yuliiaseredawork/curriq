@@ -1,0 +1,115 @@
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    env:
+      AWS_REGION: us-west-2
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      PROVIDER_SECRET_NAME: curriq/staging/providers
+      STAGING_APP_URL: ${{ vars.STAGING_APP_URL }}
+      APP_URL: ${{ vars.STAGING_APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: previous
+        name: Read last healthy release
+        run: |
+          previous_sha=$(aws ssm get-parameter --name /curriq/staging/deployed-sha --query Parameter.Value --output text 2>/dev/null || true)
+          previous_url=$(aws ssm get-parameter --name /curriq/staging/frontend-url --query Parameter.Value --output text 2>/dev/null || true)
+          echo "sha=${previous_sha}" >> "$GITHUB_OUTPUT"
+          echo "url=${previous_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy staging infrastructure and backend
+        run: pnpm --dir infra cdk deploy --all --context stage=staging --require-approval never
+
+      - name: Build staging frontend candidate
+        run: |
+          npx --yes vercel@56.5.0 pull --yes --environment=preview --token="$VERCEL_TOKEN" --cwd frontend
+          npx --yes vercel@56.5.0 build --token="$VERCEL_TOKEN" --cwd frontend
+      - id: frontend
+        name: Deploy staging frontend candidate
+        run: |
+          candidate=$(npx --yes vercel@56.5.0 deploy --prebuilt --token="$VERCEL_TOKEN" --cwd frontend)
+          echo "url=${candidate}" >> "$GITHUB_OUTPUT"
+      - name: Point staging domain at candidate
+        run: npx --yes vercel@56.5.0 alias set "${{ steps.frontend.outputs.url }}" "${{ vars.STAGING_APP_DOMAIN }}" --token="$VERCEL_TOKEN"
+
+      - name: Post-deployment smoke checks
+        env:
+          SMOKE_APP_URL: ${{ vars.STAGING_APP_URL }}
+          SMOKE_API_URL: ${{ vars.STAGING_API_URL }}
+          SMOKE_EXPECTED_ORIGIN: ${{ vars.STAGING_APP_URL }}
+        run: node scripts/smoke-test.mjs
+      - name: Critical end-to-end journeys
+        env:
+          E2E_BASE_URL: ${{ vars.STAGING_APP_URL }}
+          E2E_API_URL: ${{ vars.STAGING_API_URL }}
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_SECOND_USER_EMAIL: ${{ secrets.E2E_SECOND_USER_EMAIL }}
+          E2E_SOURCE_URL: ${{ vars.E2E_SOURCE_URL }}
+          E2E_FAILURE_SOURCE_URL: ${{ vars.E2E_FAILURE_SOURCE_URL }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: pnpm e2e
+      - name: Bounded staging load test
+        env:
+          LOAD_API_URL: ${{ vars.STAGING_API_URL }}
+          LOAD_DURATION_SECONDS: "60"
+          LOAD_CONCURRENCY: "10"
+          LOAD_REQUESTS_PER_SECOND: "20"
+          LOAD_MAX_FAILURE_RATE: "0.01"
+          LOAD_MAX_P95_MS: "2000"
+        run: pnpm test:load
+
+      - name: Record healthy staging release
+        run: |
+          aws ssm put-parameter --name /curriq/staging/deployed-sha --type String --overwrite --value "$(git rev-parse HEAD)"
+          aws ssm put-parameter --name /curriq/staging/frontend-url --type String --overwrite --value "${{ steps.frontend.outputs.url }}"
+      - name: Remove the unused legacy Cognito stack
+        run: bash scripts/remove-legacy-cognito.sh staging
+
+      - name: Roll back failed staging release
+        if: failure() && steps.previous.outputs.sha != ''
+        run: |
+          if [[ -n "${{ steps.previous.outputs.url }}" ]]; then
+            npx --yes vercel@56.5.0 alias set "${{ steps.previous.outputs.url }}" "${{ vars.STAGING_APP_DOMAIN }}" --token="$VERCEL_TOKEN"
+          fi
+          git checkout "${{ steps.previous.outputs.sha }}"
+          pnpm install --frozen-lockfile
+          pnpm --dir infra cdk deploy --all --context stage=staging --require-approval never

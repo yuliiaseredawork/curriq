@@ -53,7 +53,10 @@ export class DataStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
       storageEncrypted: true,
-      backupRetention: cdk.Duration.days(props.stage === "prod" ? 35 : 7),
+      // The current AWS free-plan account caps non-production automated
+      // backups at one day. Production deliberately keeps the full 35-day
+      // policy and therefore requires an upgraded account plan.
+      backupRetention: cdk.Duration.days(props.stage === "prod" ? 35 : 1),
       deleteAutomatedBackups: false,
       copyTagsToSnapshot: true,
       preferredBackupWindow: "05:00-06:00",

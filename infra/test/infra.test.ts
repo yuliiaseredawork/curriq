@@ -66,7 +66,7 @@ test("uploads use restricted CORS, cleanup, malware scanning, and quota TTL", ()
   ).toBe(true);
 
   template.hasResourceProperties("AWS::RDS::DBInstance", {
-    BackupRetentionPeriod: 7,
+    BackupRetentionPeriod: 1,
     DeletionProtection: true,
     DeleteAutomatedBackups: false,
     StorageEncrypted: true,

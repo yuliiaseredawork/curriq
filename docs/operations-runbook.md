@@ -62,8 +62,9 @@ the `Provider` and `Model` dimensions on the AI metrics.
 ## Backups and restore drills
 
 DynamoDB point-in-time recovery and S3 versioning are enabled on every
-application table and bucket. RDS keeps seven days of staging backups and 35
-days in production, retains automated backups, encrypts storage, snapshots on
+application table and bucket. The current free-plan account keeps one day of
+staging RDS backups; production requires an upgraded plan and keeps 35 days.
+RDS retains automated backups, encrypts storage, snapshots on
 stack removal, and has deletion protection outside development. Never disable
 these controls to unblock a deployment.
 

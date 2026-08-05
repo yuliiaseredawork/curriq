@@ -20,6 +20,8 @@ const allowedOrigins =
     : stage === "staging"
       ? [stagingOrigin]
       : ["http://localhost:3000", stagingOrigin];
+const malwareProtectionEnabled =
+  stage === "prod" || process.env.ENABLE_MALWARE_PROTECTION === "true";
 
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -34,6 +36,7 @@ const data = new DataStack(app, `Curriq-Data-${stage}`, {
   env,
   stage,
   allowedOrigins,
+  enableMalwareProtection: malwareProtectionEnabled,
   vpc: network.vpc,
 });
 const ingest = new IngestStack(app, `Curriq-Ingest-${stage}`, {
@@ -55,6 +58,7 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   env,
   stage,
   allowedOrigins,
+  malwareProtectionEnabled,
   rawBucket: data.rawBucket,
   dbSecret: data.dbSecret,
   dbProxyEndpoint: data.dbProxy.endpoint,

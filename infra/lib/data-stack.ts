@@ -13,6 +13,7 @@ interface Props extends cdk.StackProps {
   vpc: ec2.Vpc;
   stage: string;
   allowedOrigins: string[];
+  enableMalwareProtection: boolean;
 }
 
 export class DataStack extends cdk.Stack {
@@ -247,66 +248,68 @@ export class DataStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
 
-    const malwareRole = new iam.Role(this, "MalwareProtectionRole", {
-      assumedBy: new iam.ServicePrincipal(
-        "malware-protection-plan.guardduty.amazonaws.com",
-      ),
-    });
-    malwareRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:GetObjectTagging",
-          "s3:PutObjectTagging",
-        ],
-        resources: [this.rawBucket.arnForObjects("pdf-uploads/*")],
-      }),
-    );
-    malwareRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          "s3:ListBucket",
-          "s3:GetBucketNotification",
-          "s3:PutBucketNotification",
-        ],
-        resources: [this.rawBucket.bucketArn],
-      }),
-    );
-    malwareRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: [
-          "events:PutRule",
-          "events:DeleteRule",
-          "events:PutTargets",
-          "events:RemoveTargets",
-        ],
-        resources: [
-          this.formatArn({
-            service: "events",
-            resource: "rule",
-            resourceName: "DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*",
-          }),
-        ],
-      }),
-    );
+    if (props.enableMalwareProtection) {
+      const malwareRole = new iam.Role(this, "MalwareProtectionRole", {
+        assumedBy: new iam.ServicePrincipal(
+          "malware-protection-plan.guardduty.amazonaws.com",
+        ),
+      });
+      malwareRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "s3:GetObject",
+            "s3:GetObjectVersion",
+            "s3:GetObjectTagging",
+            "s3:PutObjectTagging",
+          ],
+          resources: [this.rawBucket.arnForObjects("pdf-uploads/*")],
+        }),
+      );
+      malwareRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "s3:ListBucket",
+            "s3:GetBucketNotification",
+            "s3:PutBucketNotification",
+          ],
+          resources: [this.rawBucket.bucketArn],
+        }),
+      );
+      malwareRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "events:PutRule",
+            "events:DeleteRule",
+            "events:PutTargets",
+            "events:RemoveTargets",
+          ],
+          resources: [
+            this.formatArn({
+              service: "events",
+              resource: "rule",
+              resourceName: "DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*",
+            }),
+          ],
+        }),
+      );
 
-    const malwarePlan = new guardduty.CfnMalwareProtectionPlan(
-      this,
-      "PdfMalwareProtection",
-      {
-        role: malwareRole.roleArn,
-        actions: { tagging: { status: "ENABLED" } },
-        protectedResource: {
-          s3Bucket: {
-            bucketName: this.rawBucket.bucketName,
-            objectPrefixes: ["pdf-uploads/"],
+      const malwarePlan = new guardduty.CfnMalwareProtectionPlan(
+        this,
+        "PdfMalwareProtection",
+        {
+          role: malwareRole.roleArn,
+          actions: { tagging: { status: "ENABLED" } },
+          protectedResource: {
+            s3Bucket: {
+              bucketName: this.rawBucket.bucketName,
+              objectPrefixes: ["pdf-uploads/"],
+            },
           },
         },
-      },
-    );
-    malwarePlan.node.addDependency(malwareRole);
-    malwarePlan.node.addDependency(this.rawBucket);
+      );
+      malwarePlan.node.addDependency(malwareRole);
+      malwarePlan.node.addDependency(this.rawBucket);
+    }
 
     new cdk.CfnOutput(this, "RawBucketName", {
       value: this.rawBucket.bucketName,

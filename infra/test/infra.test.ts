@@ -26,6 +26,7 @@ test("uploads use restricted CORS, cleanup, malware scanning, and quota TTL", ()
     vpc: network.vpc,
     stage: "test",
     allowedOrigins: ["https://curriq.app"],
+    enableMalwareProtection: true,
   });
   const template = Template.fromStack(data);
 

@@ -48,6 +48,13 @@ If clean files remain in `MALWARE_SCAN_PENDING`, inspect the GuardDuty Malware
 Protection plan status and its IAM role. Never disable `REQUIRE_MALWARE_SCAN`
 in production to clear a backlog.
 
+The current AWS free-plan account blocks GuardDuty subscription APIs, so
+non-production stacks leave malware protection disabled and do not claim that
+uploads were scanned. Production always synthesizes the protection plan and
+must not be deployed until the account plan supports GuardDuty. Set
+`ENABLE_MALWARE_PROTECTION=true` in a supported staging account to exercise the
+full upload scan before production promotion.
+
 ## Cost and abuse controls
 
 API Gateway enforces 25 requests/second with a burst of 50. The API additionally

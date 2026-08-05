@@ -36,6 +36,7 @@ interface Props extends cdk.StackProps {
   courseJobsQueue: sqs.Queue;
   allowedOrigins: string[];
   stage: string;
+  malwareProtectionEnabled: boolean;
   embedTranscriptFn: lambda.IFunction;
   processTranscriptFn: lambda.IFunction;
   courseMetadataFn: lambda.IFunction;
@@ -85,7 +86,7 @@ export class ApiStack extends cdk.Stack {
         PRO_DAILY_AI_REQUESTS: "500",
         PRO_REQUESTS_PER_5_MINUTES: "1000",
         MAX_PDF_BYTES: String(20 * 1024 * 1024),
-        REQUIRE_MALWARE_SCAN: "true",
+        REQUIRE_MALWARE_SCAN: String(props.malwareProtectionEnabled),
         GENERATE_REMEDIATION_FUNCTION_NAME:
           props.generateRemediationFn.functionName,
         EMBED_TRANSCRIPT_FUNCTION_NAME: props.embedTranscriptFn.functionName,

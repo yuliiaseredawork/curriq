@@ -22,6 +22,8 @@ const allowedOrigins =
       : ["http://localhost:3000", stagingOrigin];
 const malwareProtectionEnabled =
   stage === "prod" || process.env.ENABLE_MALWARE_PROTECTION === "true";
+const rdsProxyEnabled =
+  stage === "prod" || process.env.ENABLE_RDS_PROXY === "true";
 
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -37,6 +39,7 @@ const data = new DataStack(app, `Curriq-Data-${stage}`, {
   stage,
   allowedOrigins,
   enableMalwareProtection: malwareProtectionEnabled,
+  enableRdsProxy: rdsProxyEnabled,
   vpc: network.vpc,
 });
 const ingest = new IngestStack(app, `Curriq-Ingest-${stage}`, {
@@ -44,7 +47,7 @@ const ingest = new IngestStack(app, `Curriq-Ingest-${stage}`, {
   vpc: network.vpc,
   rawBucket: data.rawBucket,
   processedBucket: data.processedBucket,
-  dbProxy: data.dbProxy,
+  dbEndpoint: data.dbEndpoint,
   dbSecret: data.dbSecret,
   focusAreasTable: data.focusAreasTable,
   mistakesTable: data.mistakesTable,
@@ -61,7 +64,7 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   malwareProtectionEnabled,
   rawBucket: data.rawBucket,
   dbSecret: data.dbSecret,
-  dbProxyEndpoint: data.dbProxy.endpoint,
+  dbEndpoint: data.dbEndpoint,
   searchChunksFn: ingest.searchChunksFn,
   processedBucket: data.processedBucket,
   progressTable: data.progressTable,

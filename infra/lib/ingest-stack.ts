@@ -4,7 +4,6 @@ import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 
 import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as rds from "aws-cdk-lib/aws-rds";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sm from "aws-cdk-lib/aws-secretsmanager";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -41,7 +40,7 @@ interface Props extends cdk.StackProps {
   vpc: ec2.Vpc;
   rawBucket: s3.Bucket;
   processedBucket: s3.Bucket;
-  dbProxy: rds.DatabaseProxy;
+  dbEndpoint: string;
   dbSecret: sm.ISecret;
   focusAreasTable: ddb.Table;
   mistakesTable: ddb.Table;
@@ -137,7 +136,7 @@ export class IngestStack extends cdk.Stack {
         environment: {
           PROCESSED_BUCKET: props.processedBucket.bucketName,
           DB_SECRET_ARN: props.dbSecret.secretArn,
-          DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
+          DB_PROXY_ENDPOINT: props.dbEndpoint,
         },
       },
     );
@@ -163,7 +162,7 @@ export class IngestStack extends cdk.Stack {
         },
         environment: {
           DB_SECRET_ARN: props.dbSecret.secretArn,
-          DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
+          DB_PROXY_ENDPOINT: props.dbEndpoint,
         },
       },
     );
@@ -189,7 +188,7 @@ export class IngestStack extends cdk.Stack {
         },
         environment: {
           DB_SECRET_ARN: props.dbSecret.secretArn,
-          DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
+          DB_PROXY_ENDPOINT: props.dbEndpoint,
         },
       },
     );
@@ -211,7 +210,7 @@ export class IngestStack extends cdk.Stack {
       environment: {
         SERVICE_NAME: "curriq-migrations",
         DB_SECRET_ARN: props.dbSecret.secretArn,
-        DB_PROXY_ENDPOINT: props.dbProxy.endpoint,
+        DB_PROXY_ENDPOINT: props.dbEndpoint,
       },
     });
     props.dbSecret.grantRead(migrationFn);

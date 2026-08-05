@@ -55,6 +55,12 @@ must not be deployed until the account plan supports GuardDuty. Set
 `ENABLE_MALWARE_PROTECTION=true` in a supported staging account to exercise the
 full upload scan before production promotion.
 
+The same free-plan account blocks RDS Proxy. Non-production stacks therefore
+connect to the private RDS endpoint while retaining the two-connection warm
+Lambda pool. Production always synthesizes RDS Proxy and must be deployed from
+an account plan that supports it. Set `ENABLE_RDS_PROXY=true` in a supported
+staging account to validate proxy behavior before production promotion.
+
 ## Cost and abuse controls
 
 API Gateway enforces 25 requests/second with a burst of 50. The API additionally

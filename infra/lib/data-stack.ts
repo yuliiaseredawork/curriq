@@ -14,11 +14,13 @@ interface Props extends cdk.StackProps {
   stage: string;
   allowedOrigins: string[];
   enableMalwareProtection: boolean;
+  enableRdsProxy: boolean;
 }
 
 export class DataStack extends cdk.Stack {
   public readonly db: rds.DatabaseInstance;
-  public readonly dbProxy: rds.DatabaseProxy;
+  public readonly dbProxy?: rds.DatabaseProxy;
+  public readonly dbEndpoint: string;
   public readonly dbSecret: sm.ISecret;
   public readonly rawBucket: s3.Bucket;
   public readonly processedBucket: s3.Bucket;
@@ -69,16 +71,21 @@ export class DataStack extends cdk.Stack {
     });
 
     this.dbSecret = this.db.secret!;
-    this.dbProxy = this.db.addProxy("Proxy", {
-      secrets: [this.dbSecret],
-      vpc: props.vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      requireTLS: true,
-      borrowTimeout: cdk.Duration.seconds(30),
-      idleClientTimeout: cdk.Duration.minutes(5),
-      maxConnectionsPercent: 80,
-      maxIdleConnectionsPercent: 20,
-    });
+    if (props.enableRdsProxy) {
+      this.dbProxy = this.db.addProxy("Proxy", {
+        secrets: [this.dbSecret],
+        vpc: props.vpc,
+        vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+        requireTLS: true,
+        borrowTimeout: cdk.Duration.seconds(30),
+        idleClientTimeout: cdk.Duration.minutes(5),
+        maxConnectionsPercent: 80,
+        maxIdleConnectionsPercent: 20,
+      });
+      this.dbEndpoint = this.dbProxy.endpoint;
+    } else {
+      this.dbEndpoint = this.db.instanceEndpoint.hostname;
+    }
     this.providerSecret = sm.Secret.fromSecretNameV2(
       this,
       "ProviderSecrets",
@@ -90,7 +97,7 @@ export class DataStack extends cdk.Stack {
       ec2.Port.tcp(5432),
       "Allow Postgres access from VPC",
     );
-    this.dbProxy.connections.allowFrom(
+    this.dbProxy?.connections.allowFrom(
       ec2.Peer.ipv4(props.vpc.vpcCidrBlock),
       ec2.Port.tcp(5432),
       "Allow private workloads to use the RDS Proxy",

@@ -27,6 +27,7 @@ test("uploads use restricted CORS, cleanup, malware scanning, and quota TTL", ()
     stage: "test",
     allowedOrigins: ["https://curriq.app"],
     enableMalwareProtection: true,
+    enableRdsProxy: true,
   });
   const template = Template.fromStack(data);
 

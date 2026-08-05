@@ -23,7 +23,7 @@ interface Props extends cdk.StackProps {
   rawBucket: s3.Bucket;
   processedBucket: s3.Bucket;
   dbSecret: sm.ISecret;
-  dbProxyEndpoint: string;
+  dbEndpoint: string;
   searchChunksFn: lambda.IFunction;
   progressTable: ddb.Table;
   mistakesTable: ddb.Table;
@@ -68,7 +68,7 @@ export class ApiStack extends cdk.Stack {
         SERVICE_NAME: "curriq-api",
         RAW_BUCKET: props.rawBucket.bucketName,
         DB_SECRET_ARN: props.dbSecret.secretArn,
-        DB_PROXY_ENDPOINT: props.dbProxyEndpoint,
+        DB_PROXY_ENDPOINT: props.dbEndpoint,
         PROVIDER_SECRET_ARN: props.providerSecret.secretArn,
         SEARCH_CHUNKS_FUNCTION_NAME: props.searchChunksFn.functionName,
         PROCESSED_BUCKET: props.processedBucket.bucketName,

@@ -1,6 +1,15 @@
-import { courseIdentity } from '@/lib/courseIdentity';
-import { courseStatusLabel, courseCardView, primaryButtonClass } from '@/lib/learnerCopy';
-import { interactiveCard, subtleCard } from '@/lib/ui';
+import { courseIdentity } from "@/lib/courseIdentity";
+import {
+  courseStatusLabel,
+  courseCardView,
+  primaryButtonClass,
+  secondaryButtonClass,
+  importFailureMessage,
+  IMPORT_NEEDS_ATTENTION_BADGE,
+  IMPORT_FAILED_BODY,
+  IMPORT_RETRY_LABEL,
+} from "@/lib/learnerCopy";
+import { interactiveCard, subtleCard } from "@/lib/ui";
 
 // Optional per-course progress (best-effort, fetched on the home page). When
 // present and started, the READY card shows "Continue" + a progress hint.
@@ -19,25 +28,29 @@ export function CourseCard({
   onRetry,
   retrying = false,
   progress,
+  ctaEmphasis = "primary",
 }: {
   course: any;
   onRetry: (courseId: string) => void;
   retrying?: boolean;
   progress?: CourseCardProgress | null;
+  /** "secondary" when another element on the screen (e.g. the Today's-plan
+   *  card) is the one primary action — keeps one blue CTA per viewport. */
+  ctaEmphasis?: "primary" | "secondary";
 }) {
-  const isFailed = course.status === 'FAILED';
+  const isFailed = course.status === "FAILED";
   const view = courseStatusLabel(course.status);
   const id = courseIdentity(course.title);
 
   const sourceLabel =
-    course.sourceType === 'PDF'
-      ? 'PDF'
-      : course.sourceType === 'YOUTUBE_VIDEO'
-        ? 'YouTube video'
-        : 'YouTube playlist';
+    course.sourceType === "PDF"
+      ? "PDF"
+      : course.sourceType === "YOUTUBE_VIDEO"
+        ? "YouTube video"
+        : "YouTube playlist";
   // PDF keeps its (clean) file name; YouTube shows just the label, never the
   // raw URL.
-  const sourceLine = course.sourceType === 'PDF' ? course.sourceFileName : null;
+  const sourceLine = course.sourceType === "PDF" ? course.sourceFileName : null;
 
   const header = (statusNode: React.ReactNode) => (
     <div className="flex items-start justify-between gap-3">
@@ -49,35 +62,45 @@ export function CourseCard({
           {id.icon}
         </span>
         <div className="min-w-0 space-y-1.5">
-          <h3 className="font-semibold leading-snug">{course.title ?? 'Untitled course'}</h3>
+          <h3 className="line-clamp-2 font-semibold leading-snug">
+            {course.title ?? "Untitled course"}
+          </h3>
           <span className="inline-block rounded-full border border-white/10 px-2 py-0.5 text-xs text-gray-400">
             {sourceLabel}
           </span>
-          {sourceLine && <p className="truncate text-sm text-gray-500">{sourceLine}</p>}
+          {sourceLine && (
+            <p className="truncate text-sm text-gray-500">{sourceLine}</p>
+          )}
         </div>
       </div>
       {statusNode}
     </div>
   );
 
+  // FAILED — calm, not alarming: this card is meant to live in the separate
+  // "Imports that need attention" section, never the main grid, so it stays
+  // quiet (subtleCard + a thin accent border) rather than a red alarm block.
   if (isFailed) {
     return (
-      <div className="flex h-full flex-col rounded-2xl border border-red-500/30 bg-red-950/10 p-5">
+      <div
+        className={`${subtleCard} flex h-full flex-col border-l-2 border-l-red-500/40 p-5`}
+      >
         {header(
-          <span className="shrink-0 rounded-full border border-red-500/40 px-2.5 py-0.5 text-xs text-red-300">
-            Failed
+          <span className="shrink-0 rounded-full border border-white/10 px-2.5 py-0.5 text-xs text-gray-400">
+            {IMPORT_NEEDS_ATTENTION_BADGE}
           </span>,
         )}
-        <p className="mt-3 text-sm text-red-300/90">
-          {course.errorMessage ?? 'Course generation failed. Please try again.'}
+        <p className="mt-3 text-sm text-gray-300">
+          {importFailureMessage(course.errorMessage)}
         </p>
+        <p className="mt-1 text-xs text-gray-500">{IMPORT_FAILED_BODY}</p>
         <button
           type="button"
           onClick={() => onRetry(course.courseId)}
           disabled={retrying}
-          className="mt-3 self-start rounded-xl bg-white px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+          className={`${secondaryButtonClass} mt-3 self-start px-4 py-2 text-sm`}
         >
-          {retrying ? 'Retrying…' : 'Retry'}
+          {retrying ? "Retrying…" : IMPORT_RETRY_LABEL}
         </button>
       </div>
     );
@@ -93,7 +116,13 @@ export function CourseCard({
           </span>,
         )}
         <p className="mt-3 text-sm text-gray-500">
-          Building your course — you can leave this page; it’ll be ready here.
+          You can leave this page — it’ll be ready here.{" "}
+          <a
+            href="/demo"
+            className="text-gray-400 underline decoration-white/20 hover:text-gray-200"
+          >
+            Try the demo course while you wait
+          </a>
         </p>
       </div>
     );
@@ -117,7 +146,13 @@ export function CourseCard({
         </span>,
       )}
       <p className="mt-2 text-xs text-gray-500">{cardView.statusLine}</p>
-      <span className={`${primaryButtonClass} mt-3 self-start px-4 py-2 text-sm`}>
+      <span
+        className={`${
+          ctaEmphasis === "secondary"
+            ? secondaryButtonClass
+            : primaryButtonClass
+        } mt-3 self-start px-4 py-2 text-sm`}
+      >
         {cardView.ctaLabel}
       </span>
     </a>

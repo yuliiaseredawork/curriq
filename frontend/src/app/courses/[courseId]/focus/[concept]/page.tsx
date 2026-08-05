@@ -1,12 +1,16 @@
-'use client';
+"use client";
 
-import { use, useEffect, useState } from 'react';
-import { useAuth } from '@clerk/nextjs';
-import { createApiClient } from '@/lib/api';
-import { ScannableText } from '@/components/ScannableText';
-import { McqChoices } from '@/components/McqChoices';
-import { extractKeyTerms } from '@/lib/highlightTerms';
-import { FOCUS_EYEBROW, FOCUS_CONTEXT } from '@/lib/learnerCopy';
+import { use, useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { createApiClient } from "@/lib/api";
+import { ScannableText } from "@/components/ScannableText";
+import { McqChoices } from "@/components/McqChoices";
+import { extractKeyTerms } from "@/lib/highlightTerms";
+import {
+  FOCUS_EYEBROW,
+  FOCUS_CONTEXT,
+  safeErrorMessage,
+} from "@/lib/learnerCopy";
 import {
   pageShell,
   readingContainer,
@@ -14,7 +18,7 @@ import {
   eyebrow,
   ghostLink,
   primaryButtonClass,
-} from '@/lib/ui';
+} from "@/lib/ui";
 
 export default function FocusPracticePage({
   params,
@@ -27,12 +31,12 @@ export default function FocusPracticePage({
 
   const [preparing, setPreparing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [title, setTitle] = useState('');
-  const [conceptName, setConceptName] = useState('');
+  const [error, setError] = useState("");
+  const [title, setTitle] = useState("");
+  const [conceptName, setConceptName] = useState("");
   const [questions, setQuestions] = useState<any[]>([]);
   const [index, setIndex] = useState(0);
-  const [answer, setAnswer] = useState('');
+  const [answer, setAnswer] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<any>(null);
   const [completed, setCompleted] = useState(false);
@@ -41,10 +45,10 @@ export default function FocusPracticePage({
 
   async function loadSession() {
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const { status, body } = await api.startFocusSession(courseId, concept);
-      if (status === 202 || body.status === 'PREPARING') {
+      if (status === 202 || body.status === "PREPARING") {
         setPreparing(true);
         return;
       }
@@ -54,7 +58,7 @@ export default function FocusPracticePage({
       setQuestions(body.questions ?? []);
       setIndex(body.currentQuestionIndex ?? 0);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to start practice');
+      setError(e.message ?? "Failed to start practice");
     } finally {
       setLoading(false);
     }
@@ -79,7 +83,7 @@ export default function FocusPracticePage({
   async function handleSubmit() {
     if (!answer || !question) return;
     setSubmitting(true);
-    setError('');
+    setError("");
     try {
       const result = await api.submitFocusAnswer(courseId, concept, {
         questionId: question.id,
@@ -91,7 +95,7 @@ export default function FocusPracticePage({
         setMastery(result.mastery);
       }
     } catch (e: any) {
-      setError(e.message ?? 'Failed to submit answer');
+      setError(e.message ?? "Failed to submit answer");
     } finally {
       setSubmitting(false);
     }
@@ -102,7 +106,7 @@ export default function FocusPracticePage({
       setShowSummary(true);
       return;
     }
-    setAnswer('');
+    setAnswer("");
     setFeedback(null);
     setIndex((i) => i + 1);
   }
@@ -111,7 +115,9 @@ export default function FocusPracticePage({
     return (
       <main className={pageShell}>
         <div className={`${readingContainer} space-y-4`}>
-          <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
+          <a href={`/courses/${courseId}`} className={ghostLink}>
+            ← Back to course
+          </a>
           <div className="rounded-2xl border border-blue-500/30 bg-blue-950/25 p-6 text-blue-100">
             Preparing your practice… this will be ready in a moment.
           </div>
@@ -132,8 +138,12 @@ export default function FocusPracticePage({
     return (
       <main className={pageShell}>
         <div className={`${readingContainer} space-y-4`}>
-          <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
-          <div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">{error}</div>
+          <a href={`/courses/${courseId}`} className={ghostLink}>
+            ← Back to course
+          </a>
+          <div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">
+            {safeErrorMessage(error)}
+          </div>
         </div>
       </main>
     );
@@ -143,16 +153,26 @@ export default function FocusPracticePage({
     return (
       <main className={pageShell}>
         <div className={`${readingContainer} space-y-6`}>
-          <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
+          <a href={`/courses/${courseId}`} className={ghostLink}>
+            ← Back to course
+          </a>
           <div className="rounded-2xl border border-green-500/30 bg-green-950/25 p-8 space-y-2 text-center">
-            <div className="text-2xl font-bold tracking-tight">Practice complete 🎉</div>
+            <div className="text-2xl font-bold tracking-tight">
+              Practice complete 🎉
+            </div>
             {mastery && (
               <p className="text-gray-200">
-                Mastery for <span className="font-semibold">{conceptName}</span>: {mastery.masteryScore}%{' '}
-                <span className={mastery.delta >= 0 ? 'text-green-400' : 'text-red-400'}>
-                  ({mastery.delta >= 0 ? '+' : ''}{mastery.delta})
-                </span>{' '}
-                — {mastery.state === 'MASTERED' ? 'Mastered! 🏆' : 'keep going'}
+                Mastery for <span className="font-semibold">{conceptName}</span>
+                : {mastery.masteryScore}%{" "}
+                <span
+                  className={
+                    mastery.delta >= 0 ? "text-green-400" : "text-red-400"
+                  }
+                >
+                  ({mastery.delta >= 0 ? "+" : ""}
+                  {mastery.delta})
+                </span>{" "}
+                — {mastery.state === "MASTERED" ? "Mastered! 🏆" : "keep going"}
               </p>
             )}
           </div>
@@ -185,13 +205,17 @@ export default function FocusPracticePage({
   return (
     <main className={pageShell}>
       <div className={`${readingContainer} space-y-6`}>
-        <a href={`/courses/${courseId}`} className={ghostLink}>← Back to course</a>
+        <a href={`/courses/${courseId}`} className={ghostLink}>
+          ← Back to course
+        </a>
 
         <div className="space-y-1">
           <div className={`${eyebrow} text-yellow-300`}>{FOCUS_EYEBROW}</div>
           <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
           <p className="text-sm text-gray-400">{FOCUS_CONTEXT}</p>
-          <p className="pt-1 text-sm text-gray-500">Question {index + 1} of {questions.length}</p>
+          <p className="pt-1 text-sm text-gray-500">
+            Question {index + 1} of {questions.length}
+          </p>
         </div>
 
         <section className={`${elevatedCard} p-6 space-y-5 sm:p-7`}>
@@ -202,10 +226,12 @@ export default function FocusPracticePage({
               className="text-xl font-semibold leading-relaxed"
             />
           ) : (
-            <h2 className="text-xl font-semibold leading-relaxed">{question.question}</h2>
+            <h2 className="text-xl font-semibold leading-relaxed">
+              {question.question}
+            </h2>
           )}
 
-          {question.type === 'mcq' && question.choices?.length ? (
+          {question.type === "mcq" && question.choices?.length ? (
             <McqChoices
               choices={question.choices}
               selected={answer}
@@ -230,38 +256,55 @@ export default function FocusPracticePage({
               onClick={handleSubmit}
               disabled={!answer || submitting}
             >
-              {submitting ? 'Checking your answer…' : 'Submit answer'}
+              {submitting ? "Checking your answer…" : "Submit answer"}
             </button>
           )}
 
           {feedback && (
             <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">
-              {feedback.type === 'rubric' ? (
+              {feedback.type === "rubric" ? (
                 <>
-                  <div className={`font-medium ${feedback.passed ? 'text-green-400' : 'text-yellow-300'}`}>
-                    Score {feedback.score}/100 — {feedback.passed ? 'Passed' : 'Keep practicing'}
+                  <div
+                    className={`font-medium ${feedback.passed ? "text-green-400" : "text-yellow-300"}`}
+                  >
+                    Score {feedback.score}/100 —{" "}
+                    {feedback.passed ? "Passed" : "Keep practicing"}
                   </div>
                   {feedback.strengths?.length > 0 && (
                     <div>
-                      <div className="text-sm font-medium text-green-400">What you got right</div>
+                      <div className="text-sm font-medium text-green-400">
+                        What you got right
+                      </div>
                       <ul className="list-disc pl-5 text-sm text-gray-300">
-                        {feedback.strengths.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                        {feedback.strengths.map((s: string, i: number) => (
+                          <li key={i}>{s}</li>
+                        ))}
                       </ul>
                     </div>
                   )}
                   {feedback.missingConcepts?.length > 0 && (
                     <div>
-                      <div className="text-sm font-medium text-yellow-300">What you missed</div>
+                      <div className="text-sm font-medium text-yellow-300">
+                        What you missed
+                      </div>
                       <ul className="list-disc pl-5 text-sm text-gray-300">
-                        {feedback.missingConcepts.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                        {feedback.missingConcepts.map(
+                          (s: string, i: number) => (
+                            <li key={i}>{s}</li>
+                          ),
+                        )}
                       </ul>
                     </div>
                   )}
                   {feedback.misconceptions?.length > 0 && (
                     <div>
-                      <div className="text-sm font-medium text-red-400">Misconceptions</div>
+                      <div className="text-sm font-medium text-red-400">
+                        Misconceptions
+                      </div>
                       <ul className="list-disc pl-5 text-sm text-gray-300">
-                        {feedback.misconceptions.map((s: string, i: number) => <li key={i}>{s}</li>)}
+                        {feedback.misconceptions.map((s: string, i: number) => (
+                          <li key={i}>{s}</li>
+                        ))}
                       </ul>
                     </div>
                   )}
@@ -273,8 +316,10 @@ export default function FocusPracticePage({
                 </>
               ) : (
                 <>
-                  <div className={`font-medium ${feedback.correct ? 'text-green-400' : 'text-red-400'}`}>
-                    {feedback.correct ? 'Correct' : 'Not quite'}
+                  <div
+                    className={`font-medium ${feedback.correct ? "text-green-400" : "text-red-400"}`}
+                  >
+                    {feedback.correct ? "Correct" : "Not quite"}
                   </div>
                   <ScannableText
                     text={feedback.explanation}
@@ -297,8 +342,11 @@ export default function FocusPracticePage({
                   )}
                 </>
               )}
-              <button className={`${primaryButtonClass} px-6 py-3`} onClick={handleNext}>
-                {index + 1 >= questions.length ? 'Finish' : 'Next question'}
+              <button
+                className={`${primaryButtonClass} px-6 py-3`}
+                onClick={handleNext}
+              >
+                {index + 1 >= questions.length ? "Finish" : "Next question"}
               </button>
             </div>
           )}

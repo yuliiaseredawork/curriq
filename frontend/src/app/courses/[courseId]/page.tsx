@@ -1,12 +1,13 @@
-'use client';
+"use client";
 
-import { use, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth, useUser } from '@clerk/nextjs';
-import { createApiClient } from '@/lib/api';
-import { ScannableText } from '@/components/ScannableText';
-import { extractKeyTerms, titleTerms } from '@/lib/highlightTerms';
-import { courseIdentity } from '@/lib/courseIdentity';
+import { use, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
+import { createApiClient } from "@/lib/api";
+import { ScannableText } from "@/components/ScannableText";
+import { extractKeyTerms, titleTerms } from "@/lib/highlightTerms";
+import { courseIdentity } from "@/lib/courseIdentity";
 import {
   learningProgressView,
   chapterStatusLabel,
@@ -28,8 +29,9 @@ import {
   METRIC_SOLID_LEARNING_LABEL,
   METRIC_NEEDS_LOOK_LABEL,
   METRIC_READY_TO_REVIEW_LABEL,
-} from '@/lib/learnerCopy';
-import { sessionHref } from '@/lib/sessionScope';
+  safeErrorMessage,
+} from "@/lib/learnerCopy";
+import { sessionHref } from "@/lib/sessionScope";
 import {
   pageShell,
   readingContainer,
@@ -42,7 +44,7 @@ import {
   progressTrack,
   progressFill,
   secondaryButtonClass,
-} from '@/lib/ui';
+} from "@/lib/ui";
 
 export default function CoursePage({
   params,
@@ -52,18 +54,11 @@ export default function CoursePage({
   const { courseId } = use(params);
   const router = useRouter();
   const { getToken, isLoaded: authLoaded } = useAuth();
-  const { user, isLoaded: userLoaded } = useUser();
   const api = createApiClient(getToken);
-
-  const userId = user?.primaryEmailAddress?.emailAddress
-    ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
-    : user?.id
-      ? `clerk:${user.id}`
-      : null;
 
   const [course, setCourse] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [focusAreas, setFocusAreas] = useState<any[]>([]);
   const [masteredAreas, setMasteredAreas] = useState<any[]>([]);
   const [focusPreparing, setFocusPreparing] = useState(false);
@@ -72,11 +67,16 @@ export default function CoursePage({
   const [showMetricDetails, setShowMetricDetails] = useState(false);
   // Per-card progressive disclosure (keyed by chapter id / concept slug) so each
   // card expands independently and cards stay short by default.
-  const [expandedObjectives, setExpandedObjectives] = useState<Record<string, boolean>>({});
-  const [expandedCovers, setExpandedCovers] = useState<Record<string, boolean>>({});
+  const [expandedObjectives, setExpandedObjectives] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedCovers, setExpandedCovers] = useState<Record<string, boolean>>(
+    {},
+  );
   const [quizStatus, setQuizStatus] = useState<Record<string, any>>({});
   const [retention, setRetention] = useState<any>(null);
   const [cardsDue, setCardsDue] = useState<number | null>(null);
+  const [renderedAt] = useState(() => Date.now());
 
   async function loadRetention() {
     try {
@@ -115,28 +115,25 @@ export default function CoursePage({
   }
 
   useEffect(() => {
-    if (!authLoaded || !userLoaded || !userId) return;
+    if (!authLoaded) return;
 
-    Promise.all([
-      api.getCourse(courseId),
-      api.getCourseProgress(courseId, userId),
-    ])
+    Promise.all([api.getCourse(courseId), api.getCourseProgress(courseId)])
       .then(([courseResult, progressResult]) => {
         setCourse(courseResult);
         setProgress(progressResult);
       })
-      .catch((e) => setError(e.message ?? 'Failed to load course'));
+      .catch((e) => setError(e.message ?? "Failed to load course"));
 
     loadFocusAreas();
     loadQuizStatus();
     loadRetention();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, authLoaded, userLoaded, userId]);
+  }, [courseId, authLoaded]);
 
   // Poll quiz status while any chapter is still generating.
   useEffect(() => {
     const anyGenerating = Object.values(quizStatus).some(
-      (s: any) => s.status === 'GENERATING',
+      (s: any) => s.status === "GENERATING",
     );
     if (!anyGenerating) return;
     const interval = setInterval(loadQuizStatus, 4000);
@@ -155,19 +152,21 @@ export default function CoursePage({
   async function handleRetryQuiz(chapterId: string) {
     setQuizStatus((prev) => ({
       ...prev,
-      [chapterId]: { ...prev[chapterId], chapterId, status: 'GENERATING' },
+      [chapterId]: { ...prev[chapterId], chapterId, status: "GENERATING" },
     }));
     try {
       await api.retryChapterQuiz(courseId, chapterId);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to start quiz generation');
+      setError(e.message ?? "Failed to start quiz generation");
     } finally {
       loadQuizStatus();
     }
   }
 
   function handleOpenFocus(conceptSlug: string) {
-    router.push(`/courses/${courseId}/focus/${encodeURIComponent(conceptSlug)}`);
+    router.push(
+      `/courses/${courseId}/focus/${encodeURIComponent(conceptSlug)}`,
+    );
   }
 
   function handleContinue() {
@@ -180,11 +179,11 @@ export default function CoursePage({
     return (
       <main className={pageShell}>
         <div className={readingContainer}>
-          <a href="/" className={ghostLink}>
+          <Link href="/" className={ghostLink}>
             ← My courses
-          </a>
+          </Link>
           <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">
-            {error}
+            {safeErrorMessage(error)}
           </div>
         </div>
       </main>
@@ -218,22 +217,28 @@ export default function CoursePage({
   return (
     <main className={pageShell}>
       <div className={`${readingContainer} space-y-6`}>
-        <a href="/" className={ghostLink}>
+        <Link href="/" className={ghostLink}>
           ← My courses
-        </a>
+        </Link>
 
         {(() => {
           const id = courseIdentity(course.outline.title);
           return (
             <div className="flex items-center gap-3">
-              <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl border text-2xl ${id.accentClass}`}>
+              <span
+                className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl border text-2xl ${id.accentClass}`}
+              >
                 {id.icon}
               </span>
               <div className="min-w-0">
-                <div className={`${eyebrow} ${id.accentClass.split(' ').find((x) => x.startsWith('text-')) ?? 'text-gray-400'}`}>
+                <div
+                  className={`${eyebrow} ${id.accentClass.split(" ").find((x) => x.startsWith("text-")) ?? "text-gray-400"}`}
+                >
                   {id.category}
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight">{course.outline.title}</h1>
+                <h1 className="text-3xl font-bold tracking-tight">
+                  {course.outline.title}
+                </h1>
               </div>
             </div>
           );
@@ -247,7 +252,9 @@ export default function CoursePage({
           return (
             <div className={`${accentCard} space-y-4 p-6`}>
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight">{hero.title}</h2>
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  {hero.title}
+                </h2>
                 <p className="mt-1.5 text-sm text-gray-300">{hero.subtitle}</p>
               </div>
               {started && (
@@ -268,103 +275,165 @@ export default function CoursePage({
         {/* One compact "where you stand" card — progress + what's waiting +
             deadline + a quiet details disclosure. Only once the learner has
             started; a brand-new course shows the path instead of analytics. */}
-        {started && (progress || retention || cardsDue || course.metadata?.targetDate) && (
-          <div className={`${primaryCard} p-5 space-y-4`}>
-            <div>
-              <div className="flex items-baseline justify-between">
-                <div className={`${eyebrow} text-gray-400`}>Learning progress</div>
-                <div className="text-2xl font-semibold">{progressView.headline}</div>
+        {started &&
+          (progress ||
+            retention ||
+            cardsDue ||
+            course.metadata?.targetDate) && (
+            <div className={`${primaryCard} p-5 space-y-4`}>
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <div className={`${eyebrow} text-gray-400`}>
+                    Learning progress
+                  </div>
+                  <div className="text-2xl font-semibold">
+                    {progressView.headline}
+                  </div>
+                </div>
+                <div className={`${progressTrack} mt-2`}>
+                  <div
+                    className={progressFill}
+                    style={{ width: `${progressView.pct}%` }}
+                  />
+                </div>
+                <div className="mt-1 text-sm text-gray-400">
+                  {progressView.status}
+                </div>
               </div>
-              <div className={`${progressTrack} mt-2`}>
-                <div className={progressFill} style={{ width: `${progressView.pct}%` }} />
-              </div>
-              <div className="mt-1 text-sm text-gray-400">{progressView.status}</div>
+
+              {/* Compact inline stats: review waiting + deadline (no empty cards). */}
+              {((cardsDue != null && cardsDue > 0) ||
+                course.metadata?.targetDate) && (
+                <div className="flex flex-wrap items-start gap-x-8 gap-y-2 border-t border-white/5 pt-3 text-sm">
+                  {cardsDue != null && cardsDue > 0 && (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-gray-500">
+                        {METRIC_READY_TO_REVIEW_LABEL}:
+                      </span>
+                      <a
+                        href="/flashcards"
+                        className="font-semibold text-purple-300"
+                      >
+                        {cardsDue}
+                      </a>
+                    </div>
+                  )}
+                  {course.metadata?.targetDate &&
+                    (() => {
+                      const target = new Date(
+                        course.metadata.targetDate,
+                      ).getTime();
+                      const daysLeft = Math.ceil(
+                        (target - renderedAt) / 86400000,
+                      );
+                      const remaining = retention
+                        ? retention.total - retention.mastered
+                        : 0;
+                      const perDay =
+                        daysLeft > 0
+                          ? Math.ceil(remaining / daysLeft)
+                          : remaining;
+                      // On-track vs an even burn-down (mirrors backend scheduleStatus).
+                      let onTrack = true;
+                      const created = course.metadata.createdAt
+                        ? new Date(course.metadata.createdAt).getTime()
+                        : null;
+                      if (created && retention && retention.total > 0) {
+                        const totalDays = Math.max(
+                          1,
+                          Math.ceil((target - created) / 86400000),
+                        );
+                        const elapsed = Math.max(
+                          0,
+                          totalDays - Math.max(0, daysLeft),
+                        );
+                        const expectedMastered =
+                          (retention.total * elapsed) / totalDays;
+                        onTrack = expectedMastered - retention.mastered <= 0.5;
+                      }
+                      return (
+                        <div className="flex flex-col">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-gray-500">Deadline:</span>
+                            <span
+                              className={`font-semibold ${daysLeft < 0 ? "text-red-400" : ""}`}
+                            >
+                              {daysLeft < 0
+                                ? "Passed"
+                                : `${daysLeft} days left`}
+                            </span>
+                            {daysLeft >= 0 && retention && (
+                              <span
+                                className={
+                                  onTrack ? "text-green-400" : "text-yellow-400"
+                                }
+                              >
+                                · {scheduleStatusLabel(onTrack)}
+                              </span>
+                            )}
+                          </div>
+                          {daysLeft >= 0 && remaining > 0 && (
+                            <span className="text-xs text-gray-500">
+                              {stayOnTrackLine(perDay)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                </div>
+              )}
+
+              {/* Analytical metrics tucked behind a quiet disclosure. */}
+              {retention && (
+                <div className="border-t border-white/5 pt-3">
+                  <button
+                    className="text-sm text-gray-400 hover:text-gray-200"
+                    onClick={() => setShowMetricDetails((s) => !s)}
+                  >
+                    {showMetricDetails ? "▾ Hide details" : "▸ Details"}
+                  </button>
+                  {showMetricDetails && (
+                    <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <div className="text-xs text-gray-500">
+                          {METRIC_REMEMBERED_LABEL}
+                        </div>
+                        <div className="text-lg font-semibold">
+                          {retention.retentionScore}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500">
+                          {METRIC_SOLID_LEARNING_LABEL}
+                        </div>
+                        <div className="text-lg font-semibold">
+                          {retention.mastered} / {retention.learning}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500">
+                          {METRIC_NEEDS_LOOK_LABEL}
+                        </div>
+                        <div className="text-lg font-semibold text-gray-200">
+                          {retention.forgotten}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-
-            {/* Compact inline stats: review waiting + deadline (no empty cards). */}
-            {((cardsDue != null && cardsDue > 0) || course.metadata?.targetDate) && (
-              <div className="flex flex-wrap items-start gap-x-8 gap-y-2 border-t border-white/5 pt-3 text-sm">
-                {cardsDue != null && cardsDue > 0 && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-gray-500">{METRIC_READY_TO_REVIEW_LABEL}:</span>
-                    <a href="/flashcards" className="font-semibold text-purple-300">{cardsDue}</a>
-                  </div>
-                )}
-                {course.metadata?.targetDate && (() => {
-                  const target = new Date(course.metadata.targetDate).getTime();
-                  const daysLeft = Math.ceil((target - Date.now()) / 86400000);
-                  const remaining = retention ? retention.total - retention.mastered : 0;
-                  const perDay = daysLeft > 0 ? Math.ceil(remaining / daysLeft) : remaining;
-                  // On-track vs an even burn-down (mirrors backend scheduleStatus).
-                  let onTrack = true;
-                  const created = course.metadata.createdAt
-                    ? new Date(course.metadata.createdAt).getTime()
-                    : null;
-                  if (created && retention && retention.total > 0) {
-                    const totalDays = Math.max(1, Math.ceil((target - created) / 86400000));
-                    const elapsed = Math.max(0, totalDays - Math.max(0, daysLeft));
-                    const expectedMastered = (retention.total * elapsed) / totalDays;
-                    onTrack = expectedMastered - retention.mastered <= 0.5;
-                  }
-                  return (
-                    <div className="flex flex-col">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-gray-500">Deadline:</span>
-                        <span className={`font-semibold ${daysLeft < 0 ? 'text-red-400' : ''}`}>
-                          {daysLeft < 0 ? 'Passed' : `${daysLeft} days left`}
-                        </span>
-                        {daysLeft >= 0 && retention && (
-                          <span className={onTrack ? 'text-green-400' : 'text-yellow-400'}>
-                            · {scheduleStatusLabel(onTrack)}
-                          </span>
-                        )}
-                      </div>
-                      {daysLeft >= 0 && remaining > 0 && (
-                        <span className="text-xs text-gray-500">{stayOnTrackLine(perDay)}</span>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Analytical metrics tucked behind a quiet disclosure. */}
-            {retention && (
-              <div className="border-t border-white/5 pt-3">
-                <button
-                  className="text-sm text-gray-400 hover:text-gray-200"
-                  onClick={() => setShowMetricDetails((s) => !s)}
-                >
-                  {showMetricDetails ? '▾ Hide details' : '▸ Details'}
-                </button>
-                {showMetricDetails && (
-                  <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <div className="text-xs text-gray-500">{METRIC_REMEMBERED_LABEL}</div>
-                      <div className="text-lg font-semibold">{retention.retentionScore}%</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">{METRIC_SOLID_LEARNING_LABEL}</div>
-                      <div className="text-lg font-semibold">
-                        {retention.mastered} / {retention.learning}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">{METRIC_NEEDS_LOOK_LABEL}</div>
-                      <div className="text-lg font-semibold text-gray-200">{retention.forgotten}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+          )}
 
         {(focusAreas.length > 0 || focusPreparing) && (
           <div className={`${primaryCard} p-5 space-y-3`}>
             <div>
-              <div className={`${eyebrow} text-blue-300`}>Coach&apos;s pick</div>
-              <h2 className="text-xl font-semibold tracking-tight">What to work on next</h2>
+              <div className={`${eyebrow} text-blue-300`}>
+                Coach&apos;s pick
+              </div>
+              <h2 className="text-xl font-semibold tracking-tight">
+                What to work on next
+              </h2>
             </div>
 
             {focusPreparing && focusAreas.length === 0 && (
@@ -374,10 +443,17 @@ export default function CoursePage({
             )}
 
             <div className="space-y-3">
-              {(showMore ? focusAreas : focusAreas.slice(0, DEFAULT_VISIBLE_FOCUS_AREAS)).map((item) => {
-                const inProgress = item.sessionStatus === 'IN_PROGRESS';
+              {(showMore
+                ? focusAreas
+                : focusAreas.slice(0, DEFAULT_VISIBLE_FOCUS_AREAS)
+              ).map((item) => {
+                const inProgress = item.sessionStatus === "IN_PROGRESS";
                 const trendStr =
-                  item.trend > 0 ? `+${item.trend}%` : item.trend < 0 ? `${item.trend}%` : null;
+                  item.trend > 0
+                    ? `+${item.trend}%`
+                    : item.trend < 0
+                      ? `${item.trend}%`
+                      : null;
                 return (
                   <div
                     key={item.conceptSlug}
@@ -391,11 +467,16 @@ export default function CoursePage({
                         </p>
                       )}
                       <div className={`${progressTrack} h-1.5 w-40`}>
-                        <div className={progressFill} style={{ width: `${item.masteryScore}%` }} />
+                        <div
+                          className={progressFill}
+                          style={{ width: `${item.masteryScore}%` }}
+                        />
                       </div>
                       {/* Diagnostics + raw concepts stay collapsed by default so
                           the row reads as one short coaching prompt. */}
-                      {(trendStr || item.lastPracticedAt || item.rawConcepts?.length > 0) && (
+                      {(trendStr ||
+                        item.lastPracticedAt ||
+                        item.rawConcepts?.length > 0) && (
                         <div className="text-xs">
                           <button
                             type="button"
@@ -407,23 +488,40 @@ export default function CoursePage({
                               }))
                             }
                           >
-                            {detailsToggleLabel(!!expandedCovers[item.conceptSlug])}
+                            {detailsToggleLabel(
+                              !!expandedCovers[item.conceptSlug],
+                            )}
                           </button>
                           {expandedCovers[item.conceptSlug] && (
                             <div className="mt-1 space-y-0.5 text-gray-500">
                               <div>
                                 {item.masteryScore}% there
                                 {trendStr && (
-                                  <span className={item.trend >= 0 ? 'text-green-400' : 'text-gray-400'}>
-                                    {' '}· {trendStr} this week
+                                  <span
+                                    className={
+                                      item.trend >= 0
+                                        ? "text-green-400"
+                                        : "text-gray-400"
+                                    }
+                                  >
+                                    {" "}
+                                    · {trendStr} this week
                                   </span>
                                 )}
                                 {item.lastPracticedAt && (
-                                  <span> · last practiced {new Date(item.lastPracticedAt).toLocaleDateString()}</span>
+                                  <span>
+                                    {" "}
+                                    · last practiced{" "}
+                                    {new Date(
+                                      item.lastPracticedAt,
+                                    ).toLocaleDateString()}
+                                  </span>
                                 )}
                               </div>
                               {item.rawConcepts?.length > 0 && (
-                                <div className="text-gray-600">Covers: {item.rawConcepts.join(', ')}</div>
+                                <div className="text-gray-600">
+                                  Covers: {item.rawConcepts.join(", ")}
+                                </div>
                               )}
                             </div>
                           )}
@@ -436,10 +534,10 @@ export default function CoursePage({
                       disabled={!item.remediationReady && !inProgress}
                     >
                       {inProgress
-                        ? 'Resume Practice'
+                        ? "Resume Practice"
                         : item.remediationReady
-                          ? 'Practice'
-                          : 'Preparing…'}
+                          ? "Practice"
+                          : "Preparing…"}
                     </button>
                   </div>
                 );
@@ -463,7 +561,8 @@ export default function CoursePage({
               className="text-sm font-medium text-green-300 hover:text-green-200"
               onClick={() => setShowMastered((s) => !s)}
             >
-              {showMastered ? '▾' : '▸'} Mastered concepts ({masteredAreas.length})
+              {showMastered ? "▾" : "▸"} Mastered concepts (
+              {masteredAreas.length})
             </button>
             {showMastered && (
               <div className="mt-3 space-y-2">
@@ -473,7 +572,9 @@ export default function CoursePage({
                     className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-2 text-sm"
                   >
                     <span className="truncate">{item.title}</span>
-                    <span className="shrink-0 text-green-400">{item.masteryScore}% ✓</span>
+                    <span className="shrink-0 text-green-400">
+                      {item.masteryScore}% ✓
+                    </span>
                   </div>
                 ))}
               </div>
@@ -484,178 +585,193 @@ export default function CoursePage({
         <div className="space-y-4">
           <h2 className={sectionHeading}>Learning path</h2>
           {(() => {
-          // The first not-yet-completed chapter is the learner's "start here".
-          const firstIncompleteIndex = course.outline.chapters.findIndex((ch: any) => {
-            const cp = progress?.chapters?.find((p: any) => p.chapterId === ch.id);
-            return (cp?.status ?? 'NOT_STARTED') !== 'COMPLETED';
-          });
-          return course.outline.chapters.map((chapter: any, i: number) => {
-            const chapterProgress = progress?.chapters?.find(
-              (p: any) => p.chapterId === chapter.id,
+            // The first not-yet-completed chapter is the learner's "start here".
+            const firstIncompleteIndex = course.outline.chapters.findIndex(
+              (ch: any) => {
+                const cp = progress?.chapters?.find(
+                  (p: any) => p.chapterId === ch.id,
+                );
+                return (cp?.status ?? "NOT_STARTED") !== "COMPLETED";
+              },
             );
-            const isStartHere = i === firstIncompleteIndex;
+            return course.outline.chapters.map((chapter: any, i: number) => {
+              const chapterProgress = progress?.chapters?.find(
+                (p: any) => p.chapterId === chapter.id,
+              );
+              const isStartHere = i === firstIncompleteIndex;
 
-            const quiz = quizStatus[chapter.id];
-            const quizState = quiz?.status ?? 'NOT_STARTED';
+              const quiz = quizStatus[chapter.id];
+              const quizState = quiz?.status ?? "NOT_STARTED";
 
-            const buttonLabel = chapterCtaLabel(chapterProgress?.status);
+              const buttonLabel = chapterCtaLabel(chapterProgress?.status);
 
-            const badge = quizBadge(quizState, started);
-            const badgeCls =
-              quizState === 'FAILED'
-                ? 'border-red-500/40 text-red-300'
-                : quizState === 'GENERATING'
-                  ? 'border-blue-500/40 text-blue-300'
-                  : 'border-white/10 text-gray-300';
+              const badge = quizBadge(quizState, started);
+              const badgeCls =
+                quizState === "FAILED"
+                  ? "border-red-500/40 text-red-300"
+                  : quizState === "GENERATING"
+                    ? "border-blue-500/40 text-blue-300"
+                    : "border-white/10 text-gray-300";
 
-            // The current chapter gets a subtle accent so the path has a clear
-            // "you are here"; all other chapters stay calm and readable.
-            const cardCls = isStartHere
-              ? 'rounded-2xl border border-blue-500/30 bg-gray-900/70 p-5 space-y-3 shadow-lg shadow-blue-950/20 ring-1 ring-blue-500/15'
-              : `${primaryCard} p-5 space-y-3`;
+              // The current chapter gets a subtle accent so the path has a clear
+              // "you are here"; all other chapters stay calm and readable.
+              const cardCls = isStartHere
+                ? "rounded-2xl border border-blue-500/30 bg-gray-900/70 p-5 space-y-3 shadow-lg shadow-blue-950/20 ring-1 ring-blue-500/15"
+                : `${primaryCard} p-5 space-y-3`;
 
-            return (
-              <div key={chapter.id} className={cardCls}>
-                <div className="flex items-start gap-3">
-                  <span
-                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-semibold ${
-                      isStartHere
-                        ? 'bg-blue-500 text-white'
-                        : 'border border-white/10 bg-white/[0.03] text-gray-400'
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className={eyebrow}>Chapter {i + 1}</div>
-                      {badge && (
-                        <span className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badgeCls}`}>
-                          {badge.text}
-                        </span>
-                      )}
-                    </div>
-                    <h2 className="text-xl font-semibold tracking-tight">{chapter.title}</h2>
-                  </div>
-                </div>
-                {chapter.learning_objectives?.length ? (() => {
-                  // Keep cards short: show the first 2 outcomes; the rest are one
-                  // click away (full learning depth preserved on demand).
-                  const objectives: string[] = chapter.learning_objectives;
-                  const expanded = !!expandedObjectives[chapter.id];
-                  const visible = expanded
-                    ? objectives
-                    : objectives.slice(0, DEFAULT_VISIBLE_OBJECTIVES);
-                  const hasMore = objectives.length > DEFAULT_VISIBLE_OBJECTIVES;
-                  return (
-                    <div className="space-y-1">
-                      <div className="text-sm text-gray-400">{CHAPTER_OUTCOMES_INTRO}</div>
-                      <ul className="list-disc pl-5 text-sm text-gray-300 space-y-0.5">
-                        {visible.map((obj: string, oi: number) => (
-                          <li key={oi}>{obj}</li>
-                        ))}
-                      </ul>
-                      {hasMore && (
-                        <button
-                          type="button"
-                          className="text-sm text-blue-300 hover:text-blue-200"
-                          onClick={() =>
-                            setExpandedObjectives((s) => ({
-                              ...s,
-                              [chapter.id]: !s[chapter.id],
-                            }))
-                          }
-                        >
-                          {showMoreLabel(expanded)}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })() : (
-                  <ScannableText
-                    text={chapter.summary}
-                    keyTerms={extractKeyTerms({
-                      text: chapter.summary,
-                      emphasize: titleTerms(chapter.title),
-                      explicit: focusRawConcepts,
-                      deprioritize: courseTitleWords,
-                    })}
-                    clampChars={280}
-                    className="text-gray-300"
-                  />
-                )}
-
-                {chapterProgress && (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm text-gray-400">
-                      {(() => {
-                        const s = chapterStatusLabel(chapterProgress.status);
-                        return (
-                          <span>
-                            <span aria-hidden="true">{s.icon}</span> {s.text}
+              return (
+                <div key={chapter.id} className={cardCls}>
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-semibold ${
+                        isStartHere
+                          ? "bg-blue-500 text-white"
+                          : "border border-white/10 bg-white/[0.03] text-gray-400"
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={eyebrow}>Chapter {i + 1}</div>
+                        {badge && (
+                          <span
+                            className={`shrink-0 rounded-full border px-3 py-1 text-xs ${badgeCls}`}
+                          >
+                            {badge.text}
                           </span>
-                        );
-                      })()}
-                      <span>
-                        {chapterQuestionsLabel({
-                          started,
-                          answered: chapterProgress.answeredQuestions,
-                          total: chapterProgress.totalQuestions,
-                        })}
-                      </span>
-                    </div>
-                    <div className={progressTrack}>
-                      <div
-                        className={progressFill}
-                        style={{ width: `${chapterProgress.completionPercent}%` }}
-                      />
+                        )}
+                      </div>
+                      <h2 className="text-xl font-semibold tracking-tight">
+                        {chapter.title}
+                      </h2>
                     </div>
                   </div>
-                )}
+                  {chapter.learning_objectives?.length ? (
+                    (() => {
+                      // Keep cards short: show the first 2 outcomes; the rest are one
+                      // click away (full learning depth preserved on demand).
+                      const objectives: string[] = chapter.learning_objectives;
+                      const expanded = !!expandedObjectives[chapter.id];
+                      const visible = expanded
+                        ? objectives
+                        : objectives.slice(0, DEFAULT_VISIBLE_OBJECTIVES);
+                      const hasMore =
+                        objectives.length > DEFAULT_VISIBLE_OBJECTIVES;
+                      return (
+                        <div className="space-y-1">
+                          <div className="text-sm text-gray-400">
+                            {CHAPTER_OUTCOMES_INTRO}
+                          </div>
+                          <ul className="list-disc pl-5 text-sm text-gray-300 space-y-0.5">
+                            {visible.map((obj: string, oi: number) => (
+                              <li key={oi}>{obj}</li>
+                            ))}
+                          </ul>
+                          {hasMore && (
+                            <button
+                              type="button"
+                              className="text-sm text-blue-300 hover:text-blue-200"
+                              onClick={() =>
+                                setExpandedObjectives((s) => ({
+                                  ...s,
+                                  [chapter.id]: !s[chapter.id],
+                                }))
+                              }
+                            >
+                              {showMoreLabel(expanded)}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <ScannableText
+                      text={chapter.summary}
+                      keyTerms={extractKeyTerms({
+                        text: chapter.summary,
+                        emphasize: titleTerms(chapter.title),
+                        explicit: focusRawConcepts,
+                        deprioritize: courseTitleWords,
+                      })}
+                      clampChars={280}
+                      className="text-gray-300"
+                    />
+                  )}
 
-                {/* Chapter CTA opens a chapter-scoped session (only this
+                  {chapterProgress && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm text-gray-400">
+                        {(() => {
+                          const s = chapterStatusLabel(chapterProgress.status);
+                          return (
+                            <span>
+                              <span aria-hidden="true">{s.icon}</span> {s.text}
+                            </span>
+                          );
+                        })()}
+                        <span>
+                          {chapterQuestionsLabel({
+                            started,
+                            answered: chapterProgress.answeredQuestions,
+                            total: chapterProgress.totalQuestions,
+                          })}
+                        </span>
+                      </div>
+                      <div className={progressTrack}>
+                        <div
+                          className={progressFill}
+                          style={{
+                            width: `${chapterProgress.completionPercent}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chapter CTA opens a chapter-scoped session (only this
                     chapter's questions — no flashcards/reviews). Shown on the
                     "start here" chapter. */}
-                {quizState === 'READY' && isStartHere && (
-                  <a
-                    href={sessionHref(courseId, chapter.id)}
-                    className={`${primaryButtonClass} px-4 py-2`}
-                  >
-                    {buttonLabel}
-                  </a>
-                )}
+                  {quizState === "READY" && isStartHere && (
+                    <a
+                      href={sessionHref(courseId, chapter.id)}
+                      className={`${primaryButtonClass} px-4 py-2`}
+                    >
+                      {buttonLabel}
+                    </a>
+                  )}
 
-                {quizState === 'GENERATING' && (
-                  <button
-                    disabled
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-gray-400 cursor-not-allowed"
-                  >
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-                    Generating quiz…
-                  </button>
-                )}
+                  {quizState === "GENERATING" && (
+                    <button
+                      disabled
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-gray-400 cursor-not-allowed"
+                    >
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                      Generating quiz…
+                    </button>
+                  )}
 
-                {quizState === 'FAILED' && (
-                  <button
-                    onClick={() => handleRetryQuiz(chapter.id)}
-                    className="inline-flex items-center justify-center rounded-xl bg-red-500 px-4 py-2 font-medium text-white transition hover:bg-red-400"
-                  >
-                    Retry quiz
-                  </button>
-                )}
+                  {quizState === "FAILED" && (
+                    <button
+                      onClick={() => handleRetryQuiz(chapter.id)}
+                      className="inline-flex items-center justify-center rounded-xl bg-red-500 px-4 py-2 font-medium text-white transition hover:bg-red-400"
+                    >
+                      Retry quiz
+                    </button>
+                  )}
 
-                {quizState === 'NOT_STARTED' && (
-                  <button
-                    onClick={() => handleRetryQuiz(chapter.id)}
-                    className={`${secondaryButtonClass} px-4 py-2`}
-                  >
-                    Generate quiz
-                  </button>
-                )}
-              </div>
-            );
-          });
+                  {quizState === "NOT_STARTED" && (
+                    <button
+                      onClick={() => handleRetryQuiz(chapter.id)}
+                      className={`${secondaryButtonClass} px-4 py-2`}
+                    >
+                      Generate quiz
+                    </button>
+                  )}
+                </div>
+              );
+            });
           })()}
         </div>
       </div>

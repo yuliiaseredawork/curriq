@@ -1,10 +1,11 @@
-'use client';
+"use client";
 
-import { use, useEffect, useState } from 'react';
-import { useAuth } from '@clerk/nextjs';
-import { createApiClient } from '@/lib/api';
-import { ScannableText } from '@/components/ScannableText';
-import { extractKeyTerms } from '@/lib/highlightTerms';
+import { use, useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { createApiClient } from "@/lib/api";
+import { ScannableText } from "@/components/ScannableText";
+import { extractKeyTerms } from "@/lib/highlightTerms";
+import { safeErrorMessage } from "@/lib/learnerCopy";
 
 export default function PracticePage({
   params,
@@ -13,25 +14,23 @@ export default function PracticePage({
 }) {
   const { courseId, practiceId } = use(params);
   const { getToken } = useAuth();
-  const api = createApiClient(getToken);
-
   const [practice, setPractice] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answer, setAnswer] = useState('');
+  const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState<any>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    api
+    createApiClient(getToken)
       .getPractice(courseId, practiceId)
       .then((result) => setPractice(result.practice))
-      .catch((e) => setError(e.message ?? 'Failed to load practice'));
-  }, [courseId, practiceId]);
+      .catch((e) => setError(e.message ?? "Failed to load practice"));
+  }, [courseId, getToken, practiceId]);
 
   if (error) {
     return (
       <main className="min-h-screen bg-gray-950 text-white p-8">
-        <div className="text-red-300">{error}</div>
+        <div className="text-red-300">{safeErrorMessage(error)}</div>
       </main>
     );
   }
@@ -46,20 +45,25 @@ export default function PracticePage({
 
   const question = practice.questions[currentIndex];
   const practiceKeyTerms = extractKeyTerms({
-    text: [question?.question, ...((question?.choices as string[]) ?? []), feedback?.explanation],
+    text: [
+      question?.question,
+      ...((question?.choices as string[]) ?? []),
+      feedback?.explanation,
+    ],
     explicit: question?.concept_tags ?? [],
   });
 
   function handleSubmit() {
     if (!answer) return;
     setFeedback({
-      correct: answer.trim().toLowerCase() === question.answer.trim().toLowerCase(),
+      correct:
+        answer.trim().toLowerCase() === question.answer.trim().toLowerCase(),
       explanation: `Ideal answer: ${question.answer}`,
     });
   }
 
   function handleNext() {
-    setAnswer('');
+    setAnswer("");
     setFeedback(null);
     setCurrentIndex((i) => i + 1);
   }
@@ -98,28 +102,36 @@ export default function PracticePage({
 
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-6 space-y-4">
           <div className="text-sm text-gray-400">
-            {question.difficulty} · {question.concept_tags?.join(', ')}
+            {question.difficulty} · {question.concept_tags?.join(", ")}
           </div>
 
           {question.question.length > 180 ? (
-            <ScannableText text={question.question} keyTerms={practiceKeyTerms} className="text-xl font-semibold" />
+            <ScannableText
+              text={question.question}
+              keyTerms={practiceKeyTerms}
+              className="text-xl font-semibold"
+            />
           ) : (
             <h2 className="text-xl font-semibold">{question.question}</h2>
           )}
 
-          {question.type === 'mcq' && question.choices?.length ? (
+          {question.type === "mcq" && question.choices?.length ? (
             <div className="space-y-2">
               {question.choices.map((choice: string) => (
                 <button
                   key={choice}
                   className={`block w-full text-left rounded-lg border px-4 py-3 ${
                     answer === choice
-                      ? 'border-blue-500 bg-blue-950'
-                      : 'border-gray-700 bg-gray-950'
+                      ? "border-blue-500 bg-blue-950"
+                      : "border-gray-700 bg-gray-950"
                   }`}
                   onClick={() => setAnswer(choice)}
                 >
-                  <ScannableText inline text={choice} keyTerms={practiceKeyTerms} />
+                  <ScannableText
+                    inline
+                    text={choice}
+                    keyTerms={practiceKeyTerms}
+                  />
                 </button>
               ))}
             </div>
@@ -145,10 +157,19 @@ export default function PracticePage({
 
           {feedback && (
             <div className="rounded-lg border border-gray-700 bg-gray-950 p-4 space-y-3">
-              <div className={feedback.correct ? 'text-green-400' : 'text-yellow-300'}>
-                {feedback.correct ? 'Correct' : 'Review this'}
+              <div
+                className={
+                  feedback.correct ? "text-green-400" : "text-yellow-300"
+                }
+              >
+                {feedback.correct ? "Correct" : "Review this"}
               </div>
-              <ScannableText text={feedback.explanation} keyTerms={practiceKeyTerms} clampChars={240} className="text-gray-300" />
+              <ScannableText
+                text={feedback.explanation}
+                keyTerms={practiceKeyTerms}
+                clampChars={240}
+                className="text-gray-300"
+              />
               <button
                 className="rounded-lg bg-blue-500 px-5 py-3 text-white"
                 onClick={handleNext}

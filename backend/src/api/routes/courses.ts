@@ -1,35 +1,40 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { Hono } from "hono";
+import { z } from "zod";
+import { randomUUID } from "crypto";
 import {
   LambdaClient,
   InvocationType,
   InvokeCommand,
-} from '@aws-sdk/client-lambda';
+} from "@aws-sdk/client-lambda";
 
 import {
   loadOutline,
   loadQuiz,
   loadQuizManifest,
   updateChapterQuizStatus,
-} from '../../storage/course-artifacts';
+} from "../../storage/course-artifacts";
 
-import { callCourseMetadata } from '../../courses/course-metadata-client';
+import { callCourseMetadata } from "../../courses/course-metadata-client";
 
 import {
   getCourseProgress,
   getCourseMistakes,
-} from '../../storage/study-state';
+} from "../../storage/study-state";
 
-import { getCurrentUserId, UnauthorizedError } from '../../auth/current-user';
-import { parseYouTubeUrl, InvalidYouTubeUrlError } from '../../youtube/parse-youtube-url';
-import { planCourseRetry } from '../../courses/retry';
-import { youtubeSourceKey, dedupDecision } from '../../courses/source-key';
-import { toUserSafeReason } from '../../courses/failure-reason';
-import { listMastery } from '../../storage/focus-areas';
-import { blendProgress } from '../../courses/progress';
+import { getCurrentUserId, UnauthorizedError } from "../../auth/current-user";
+import {
+  parseYouTubeUrl,
+  InvalidYouTubeUrlError,
+} from "../../youtube/parse-youtube-url";
+import { planCourseRetry } from "../../courses/retry";
+import { youtubeSourceKey, dedupDecision } from "../../courses/source-key";
+import { toUserSafeReason } from "../../courses/failure-reason";
+import { listMastery } from "../../storage/focus-areas";
+import { blendProgress } from "../../courses/progress";
+import { enqueueCourseJob } from "../../jobs/course-jobs";
 
-export const courses = new Hono();
+type RouteEnv = { Variables: { correlationId: string } };
+export const courses = new Hono<RouteEnv>();
 const lambda = new LambdaClient({});
 
 // Accept either sourceUrl (preferred) or the legacy playlistUrl. sourceUrl wins.
@@ -40,14 +45,14 @@ const Input = z
     targetDate: z.string().datetime().optional(),
   })
   .refine((d) => !!(d.sourceUrl || d.playlistUrl), {
-    message: 'sourceUrl or playlistUrl is required',
+    message: "sourceUrl or playlistUrl is required",
   });
 
 function courseAccessDeniedResponse(c: any) {
   return c.json(
     {
-      error: 'COURSE_NOT_FOUND',
-      message: 'Course not found or you do not have access.',
+      error: "COURSE_NOT_FOUND",
+      message: "Course not found or you do not have access.",
     },
     404,
   );
@@ -57,19 +62,19 @@ async function requireCourseAccess(c: any, courseId: string) {
   const userId = await getCurrentUserId(c);
 
   const result = await callCourseMetadata({
-    action: 'getForUser',
+    action: "getForUser",
     courseId,
     userId,
   });
 
   if (!result.course) {
-    throw new Error('COURSE_ACCESS_DENIED');
+    throw new Error("COURSE_ACCESS_DENIED");
   }
 
   return { userId, course: result.course };
 }
 
-courses.post('/', async (c) => {
+courses.post("/", async (c) => {
   const userId = await getCurrentUserId(c);
   const input = Input.parse(await c.req.json());
   const sourceUrl = (input.sourceUrl ?? input.playlistUrl)!;
@@ -81,8 +86,8 @@ courses.post('/', async (c) => {
     if (e instanceof InvalidYouTubeUrlError) {
       return c.json(
         {
-          error: 'INVALID_YOUTUBE_URL',
-          message: 'Please paste a valid YouTube playlist or video URL.',
+          error: "INVALID_YOUTUBE_URL",
+          message: "Please paste a valid YouTube playlist or video URL.",
         },
         400,
       );
@@ -92,13 +97,17 @@ courses.post('/', async (c) => {
 
   // Per-user dedup: block a second course from the same playlist/video.
   const sourceKey = youtubeSourceKey(parsed);
-  const existing = await callCourseMetadata({ action: 'findBySourceKey', userId, sourceKey });
+  const existing = await callCourseMetadata({
+    action: "findBySourceKey",
+    userId,
+    sourceKey,
+  });
   const decision = dedupDecision(existing?.course);
   if (decision.duplicate) {
     return c.json(
       {
-        error: 'DUPLICATE_SOURCE',
-        message: 'You already have a course from this source.',
+        error: "DUPLICATE_SOURCE",
+        message: "You already have a course from this source.",
         existingCourseId: decision.existingCourseId,
         existingTitle: decision.existingTitle,
       },
@@ -107,48 +116,41 @@ courses.post('/', async (c) => {
   }
 
   const courseId = randomUUID();
-  const isVideo = parsed.sourceType === 'YOUTUBE_VIDEO';
+  const isVideo = parsed.sourceType === "YOUTUBE_VIDEO";
 
-  console.log('[POST /courses]', { courseId, userId, sourceType: parsed.sourceType });
+  console.log("[POST /courses]", { courseId, sourceType: parsed.sourceType });
 
   await callCourseMetadata({
-    action: 'upsert',
+    action: "upsert",
     courseId,
     userId,
-    title: isVideo ? 'Generating video course...' : 'Generating course...',
+    title: isVideo ? "Generating video course..." : "Generating course...",
     playlistUrl: sourceUrl, // legacy field
     playlistId: parsed.playlistId ?? null,
-    status: 'CREATED',
+    status: "CREATED",
     sourceType: parsed.sourceType,
     sourceUrl,
     sourceKey,
     targetDate: input.targetDate ?? null,
   });
 
-  await lambda.send(
-    new InvokeCommand({
-      FunctionName: process.env.GENERATE_COURSE_FUNCTION_NAME!,
-      InvocationType: InvocationType.Event,
-      Payload: Buffer.from(
-        JSON.stringify({
-          courseId,
-          userId,
-          sourceType: parsed.sourceType,
-          sourceUrl,
-          playlistUrl: sourceUrl, // legacy
-          playlistId: parsed.playlistId,
-          videoId: parsed.videoId,
-        }),
-      ),
-    }),
-  );
+  await enqueueCourseJob({
+    kind: "YOUTUBE",
+    courseId,
+    userId,
+    correlationId: c.get("correlationId"),
+    sourceType: parsed.sourceType,
+    sourceUrl,
+    playlistId: parsed.playlistId,
+    videoId: parsed.videoId,
+  });
 
-  console.log('[POST /courses] GenerateCourseFn invoked async', { courseId });
+  console.log("[POST /courses] GenerateCourseFn invoked async", { courseId });
 
   return c.json(
     {
       courseId,
-      status: 'PROCESSING',
+      status: "PROCESSING",
       sourceType: parsed.sourceType,
       sourceUrl,
     },
@@ -156,27 +158,27 @@ courses.post('/', async (c) => {
   );
 });
 
-courses.get('/', async (c) => {
+courses.get("/", async (c) => {
   const userId = await getCurrentUserId(c);
 
   const result = await callCourseMetadata({
-    action: 'list',
+    action: "list",
     userId,
   });
 
   // Defensive: ensure every FAILED row carries a user-safe reason — covers
   // legacy rows that may hold raw error text (idempotent for already-safe text).
   const courses = (result.courses ?? []).map((co: any) =>
-    co.status === 'FAILED'
-      ? { ...co, errorMessage: toUserSafeReason(co.errorMessage ?? '') }
+    co.status === "FAILED"
+      ? { ...co, errorMessage: toUserSafeReason(co.errorMessage ?? "") }
       : co,
   );
 
   return c.json({ ...result, courses });
 });
 
-courses.get('/:courseId/status', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId/status", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     const { course } = await requireCourseAccess(c, courseId);
@@ -186,23 +188,24 @@ courses.get('/:courseId/status', async (c) => {
       status: course.status,
       title: course.title,
       errorMessage:
-        course.status === 'FAILED'
-          ? toUserSafeReason(course.errorMessage ?? '')
+        course.status === "FAILED"
+          ? toUserSafeReason(course.errorMessage ?? "")
           : course.errorMessage,
       updatedAt: course.updatedAt,
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
-    return c.json({ error: 'COURSE_NOT_FOUND' }, 404);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
+    return c.json({ error: "COURSE_NOT_FOUND" }, 404);
   }
 });
 
 // POST /courses/:courseId/retry — re-run generation for a FAILED course on the
 // SAME course id (no new row). Manual only; idempotent via a conditional
 // FAILED -> CREATED transition, so a double-click never double-invokes.
-courses.post('/:courseId/retry', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.post("/:courseId/retry", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     const { userId, course } = await requireCourseAccess(c, courseId);
@@ -211,11 +214,11 @@ courses.post('/:courseId/retry', async (c) => {
     if (!plan.ok) {
       return c.json(
         {
-          error: 'COURSE_NOT_RETRYABLE',
+          error: "COURSE_NOT_RETRYABLE",
           message:
-            plan.reason === 'NOT_FAILED'
-              ? 'This course is not in a failed state, so there is nothing to retry.'
-              : 'This course cannot be retried.',
+            plan.reason === "NOT_FAILED"
+              ? "This course is not in a failed state, so there is nothing to retry."
+              : "This course cannot be retried.",
         },
         409,
       );
@@ -224,75 +227,69 @@ courses.post('/:courseId/retry', async (c) => {
     // Atomically claim the retry: only the request that flips FAILED -> CREATED
     // proceeds. A concurrent/duplicate retry gets transitioned=false → 409.
     const transition = await callCourseMetadata({
-      action: 'transitionStatus',
+      action: "transitionStatus",
       courseId,
-      fromStatus: 'FAILED',
-      toStatus: 'CREATED',
+      fromStatus: "FAILED",
+      toStatus: "CREATED",
       errorMessage: null,
     });
 
     if (!transition?.transitioned) {
       return c.json(
         {
-          error: 'COURSE_RETRY_IN_PROGRESS',
-          message: 'A retry is already in progress for this course.',
+          error: "COURSE_RETRY_IN_PROGRESS",
+          message: "A retry is already in progress for this course.",
         },
         409,
       );
     }
 
-    if (plan.pipeline === 'PDF') {
-      await lambda.send(
-        new InvokeCommand({
-          FunctionName: process.env.GENERATE_COURSE_FROM_PDF_FUNCTION_NAME!,
-          InvocationType: InvocationType.Event,
-          Payload: Buffer.from(
-            JSON.stringify({
-              courseId,
-              userId,
-              fileKey: course.sourceFileKey,
-              fileName: course.sourceFileName ?? 'document.pdf',
-            }),
-          ),
-        }),
-      );
+    if (plan.pipeline === "PDF") {
+      await enqueueCourseJob({
+        kind: "PDF",
+        courseId,
+        userId,
+        correlationId: c.get("correlationId"),
+        fileKey: course.sourceFileKey,
+        fileName: course.sourceFileName ?? "document.pdf",
+      });
     } else {
       const sourceUrl = course.sourceUrl ?? course.playlistUrl;
       const parsed = parseYouTubeUrl(sourceUrl);
-      await lambda.send(
-        new InvokeCommand({
-          FunctionName: process.env.GENERATE_COURSE_FUNCTION_NAME!,
-          InvocationType: InvocationType.Event,
-          Payload: Buffer.from(
-            JSON.stringify({
-              courseId,
-              userId,
-              sourceType: parsed.sourceType,
-              sourceUrl,
-              playlistUrl: sourceUrl,
-              playlistId: parsed.playlistId,
-              videoId: parsed.videoId,
-            }),
-          ),
-        }),
-      );
+      await enqueueCourseJob({
+        kind: "YOUTUBE",
+        courseId,
+        userId,
+        correlationId: c.get("correlationId"),
+        sourceType: parsed.sourceType,
+        sourceUrl,
+        playlistId: parsed.playlistId,
+        videoId: parsed.videoId,
+      });
     }
 
-    console.log('[POST /courses/:courseId/retry] re-queued', { courseId, pipeline: plan.pipeline });
+    console.log("[POST /courses/:courseId/retry] re-queued", {
+      courseId,
+      pipeline: plan.pipeline,
+    });
 
-    return c.json({ courseId, status: 'CREATED' }, 202);
+    return c.json({ courseId, status: "CREATED" }, 202);
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
-      { error: 'COURSE_RETRY_FAILED', message: 'Could not start retry. Please try again.' },
+      {
+        error: "COURSE_RETRY_FAILED",
+        message: "Could not start retry. Please try again.",
+      },
       500,
     );
   }
 });
 
-courses.get('/:courseId/weak-concepts', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId/weak-concepts", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     const { userId } = await requireCourseAccess(c, courseId);
@@ -322,24 +319,24 @@ courses.get('/:courseId/weak-concepts', async (c) => {
 
     return c.json({
       courseId,
-      userId,
       weakConcepts,
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'WEAK_CONCEPTS_NOT_AVAILABLE',
-        message: e.message ?? 'Could not load weak concepts.',
+        error: "WEAK_CONCEPTS_NOT_AVAILABLE",
+        message: e.message ?? "Could not load weak concepts.",
       },
       404,
     );
   }
 });
 
-courses.get('/:courseId/resume', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId/resume", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     const { userId } = await requireCourseAccess(c, courseId);
@@ -368,10 +365,10 @@ courses.get('/:courseId/resume', async (c) => {
         quiz = await loadQuiz(courseId, chapter.id);
       } catch {
         return c.json({
-          status: 'QUIZ_NOT_READY',
+          status: "QUIZ_NOT_READY",
           courseId,
           chapterId: chapter.id,
-          message: 'Quiz is not generated for the next chapter yet.',
+          message: "Quiz is not generated for the next chapter yet.",
         });
       }
 
@@ -384,7 +381,7 @@ courses.get('/:courseId/resume', async (c) => {
 
       if (nextQuestion) {
         return c.json({
-          status: 'CONTINUE',
+          status: "CONTINUE",
           courseId,
           chapterId: chapter.id,
           questionId: nextQuestion.id,
@@ -395,25 +392,26 @@ courses.get('/:courseId/resume', async (c) => {
     }
 
     return c.json({
-      status: 'COMPLETED',
+      status: "COMPLETED",
       courseId,
-      message: 'All generated quizzes are completed.',
+      message: "All generated quizzes are completed.",
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'RESUME_NOT_AVAILABLE',
-        message: e.message ?? 'Could not calculate resume state.',
+        error: "RESUME_NOT_AVAILABLE",
+        message: e.message ?? "Could not calculate resume state.",
       },
       404,
     );
   }
 });
 
-courses.get('/:courseId/progress', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId/progress", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     const { userId } = await requireCourseAccess(c, courseId);
@@ -467,12 +465,12 @@ courses.get('/:courseId/progress', async (c) => {
         completionPercent,
         status:
           quizQuestionsCount === 0
-            ? 'NOT_STARTED'
+            ? "NOT_STARTED"
             : answeredCount >= quizQuestionsCount
-              ? 'COMPLETED'
+              ? "COMPLETED"
               : answeredCount > 0
-                ? 'IN_PROGRESS'
-                : 'NOT_STARTED',
+                ? "IN_PROGRESS"
+                : "NOT_STARTED",
       });
     }
 
@@ -483,7 +481,6 @@ courses.get('/:courseId/progress', async (c) => {
 
     return c.json({
       courseId,
-      userId,
       answeredQuestions,
       totalQuestions,
       completionPercent,
@@ -491,20 +488,21 @@ courses.get('/:courseId/progress', async (c) => {
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'PROGRESS_NOT_AVAILABLE',
-        message: e.message ?? 'Could not load course progress.',
+        error: "PROGRESS_NOT_AVAILABLE",
+        message: e.message ?? "Could not load course progress.",
       },
       404,
     );
   }
 });
 
-courses.get('/:courseId/quizzes/:chapterId', async (c) => {
-  const courseId = c.req.param('courseId');
-  const chapterId = c.req.param('chapterId');
+courses.get("/:courseId/quizzes/:chapterId", async (c) => {
+  const courseId = c.req.param("courseId");
+  const chapterId = c.req.param("chapterId");
 
   try {
     await requireCourseAccess(c, courseId);
@@ -518,10 +516,11 @@ courses.get('/:courseId/quizzes/:chapterId', async (c) => {
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'QUIZ_NOT_FOUND',
+        error: "QUIZ_NOT_FOUND",
         message: `No saved quiz found for ${courseId}/${chapterId}`,
       },
       404,
@@ -529,8 +528,8 @@ courses.get('/:courseId/quizzes/:chapterId', async (c) => {
   }
 });
 
-courses.get('/:courseId/quiz-status', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId/quiz-status", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     await requireCourseAccess(c, courseId);
@@ -553,31 +552,36 @@ courses.get('/:courseId/quiz-status', async (c) => {
     return c.json({ courseId, chapters });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'QUIZ_STATUS_NOT_AVAILABLE',
-        message: e.message ?? 'Could not load quiz status.',
+        error: "QUIZ_STATUS_NOT_AVAILABLE",
+        message: e.message ?? "Could not load quiz status.",
       },
       404,
     );
   }
 });
 
-courses.post('/:courseId/chapters/:chapterId/quiz/retry', async (c) => {
-  const courseId = c.req.param('courseId');
-  const chapterId = c.req.param('chapterId');
+courses.post("/:courseId/chapters/:chapterId/quiz/retry", async (c) => {
+  const courseId = c.req.param("courseId");
+  const chapterId = c.req.param("chapterId");
 
   try {
     await requireCourseAccess(c, courseId);
 
     const outline = await loadOutline(courseId);
-    const exists = (outline.chapters ?? []).some((ch: any) => ch.id === chapterId);
+    const exists = (outline.chapters ?? []).some(
+      (ch: any) => ch.id === chapterId,
+    );
     if (!exists) {
-      return c.json({ error: 'CHAPTER_NOT_FOUND' }, 404);
+      return c.json({ error: "CHAPTER_NOT_FOUND" }, 404);
     }
 
-    await updateChapterQuizStatus(courseId, chapterId, { status: 'GENERATING' });
+    await updateChapterQuizStatus(courseId, chapterId, {
+      status: "GENERATING",
+    });
 
     await lambda.send(
       new InvokeCommand({
@@ -587,35 +591,41 @@ courses.post('/:courseId/chapters/:chapterId/quiz/retry', async (c) => {
       }),
     );
 
-    console.log('[POST quiz/retry] queued', { courseId, chapterId });
+    console.log("[POST quiz/retry] queued", { courseId, chapterId });
 
-    return c.json({ courseId, chapterId, status: 'GENERATING' }, 202);
+    return c.json({ courseId, chapterId, status: "GENERATING" }, 202);
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'QUIZ_RETRY_FAILED',
-        message: e.message ?? 'Could not start quiz generation.',
+        error: "QUIZ_RETRY_FAILED",
+        message: e.message ?? "Could not start quiz generation.",
       },
       500,
     );
   }
 });
 
-courses.get('/:courseId/retention', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId/retention", async (c) => {
+  const courseId = c.req.param("courseId");
   try {
     const { userId } = await requireCourseAccess(c, courseId);
-    const records = (await listMastery(userId, courseId)).filter((r) => r.isCanonical);
+    const records = (await listMastery(userId, courseId)).filter(
+      (r) => r.isCanonical,
+    );
 
     const total = records.length;
-    const mastered = records.filter((r) => r.state === 'MASTERED');
-    const learning = records.filter((r) => r.state === 'PRACTICING');
+    const mastered = records.filter((r) => r.state === "MASTERED");
+    const learning = records.filter((r) => r.state === "PRACTICING");
     // "Forgotten" = lapsed: peaked notably higher than current mastery.
     const forgotten = records.filter((r) => {
-      const peak = Math.max(r.masteryScore, ...(r.history ?? []).map((h) => h.score));
-      return r.state === 'NEEDS_REVIEW' && peak - r.masteryScore >= 20;
+      const peak = Math.max(
+        r.masteryScore,
+        ...(r.history ?? []).map((h) => h.score),
+      );
+      return r.state === "NEEDS_REVIEW" && peak - r.masteryScore >= 20;
     });
 
     const view = (r: any) => ({
@@ -623,22 +633,32 @@ courses.get('/:courseId/retention', async (c) => {
       title: r.title ?? r.concept,
       masteryScore: r.masteryScore,
     });
-    const weakest = [...records].sort((a, b) => a.masteryScore - b.masteryScore).slice(0, 3).map(view);
+    const weakest = [...records]
+      .sort((a, b) => a.masteryScore - b.masteryScore)
+      .slice(0, 3)
+      .map(view);
     const mostImproved = [...records]
-      .map((r) => ({ r, gain: r.masteryScore - ((r.history ?? [])[0]?.score ?? r.masteryScore) }))
+      .map((r) => ({
+        r,
+        gain: r.masteryScore - ((r.history ?? [])[0]?.score ?? r.masteryScore),
+      }))
       .filter((x) => x.gain > 0)
       .sort((a, b) => b.gain - a.gain)
       .slice(0, 3)
       .map((x) => ({ ...view(x.r), gain: x.gain }));
 
-    const retentionScore = total ? Math.round((mastered.length / total) * 100) : 0;
+    const retentionScore = total
+      ? Math.round((mastered.length / total) * 100)
+      : 0;
 
     // Blended "learning progress": mastery + quiz completion + retention +
     // review activity, so progress reflects real learning, not quiz-only %.
     const avgConceptMastery = total
       ? Math.round(records.reduce((s, r) => s + r.masteryScore, 0) / total)
       : 0;
-    const reviewedConcepts = records.filter((r) => r.lastReviewedAt || r.nextReviewAt).length;
+    const reviewedConcepts = records.filter(
+      (r) => r.lastReviewedAt || r.nextReviewAt,
+    ).length;
 
     // Quiz completion — same loop the /progress route uses (loadOutline → loadQuiz).
     let answeredQuestions = 0;
@@ -648,7 +668,8 @@ courses.get('/:courseId/retention', async (c) => {
       const progressItems = await getCourseProgress({ userId, courseId });
       const answeredByChapter = new Map<string, Set<string>>();
       for (const item of progressItems as any[]) {
-        if (!answeredByChapter.has(item.chapterId)) answeredByChapter.set(item.chapterId, new Set());
+        if (!answeredByChapter.has(item.chapterId))
+          answeredByChapter.set(item.chapterId, new Set());
         answeredByChapter.get(item.chapterId)!.add(item.questionId);
       }
       for (const chapter of outline.chapters) {
@@ -665,7 +686,9 @@ courses.get('/:courseId/retention', async (c) => {
     } catch {
       // No outline/quizzes yet — quiz completion stays 0.
     }
-    const quizCompletion = totalQuestions ? (answeredQuestions / totalQuestions) * 100 : 0;
+    const quizCompletion = totalQuestions
+      ? (answeredQuestions / totalQuestions) * 100
+      : 0;
 
     const { learningProgress, breakdown } = blendProgress({
       avgConceptMastery,
@@ -689,13 +712,14 @@ courses.get('/:courseId/retention', async (c) => {
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
-    return c.json({ error: 'RETENTION_UNAVAILABLE', message: e.message }, 500);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
+    return c.json({ error: "RETENTION_UNAVAILABLE", message: e.message }, 500);
   }
 });
 
-courses.get('/:courseId', async (c) => {
-  const courseId = c.req.param('courseId');
+courses.get("/:courseId", async (c) => {
+  const courseId = c.req.param("courseId");
 
   try {
     const { course } = await requireCourseAccess(c, courseId);
@@ -708,10 +732,11 @@ courses.get('/:courseId', async (c) => {
     });
   } catch (e: any) {
     if (e instanceof UnauthorizedError) throw e;
-    if (e.message === 'COURSE_ACCESS_DENIED') return courseAccessDeniedResponse(c);
+    if (e.message === "COURSE_ACCESS_DENIED")
+      return courseAccessDeniedResponse(c);
     return c.json(
       {
-        error: 'COURSE_NOT_FOUND',
+        error: "COURSE_NOT_FOUND",
         message: `No saved course found for ${courseId}`,
       },
       404,

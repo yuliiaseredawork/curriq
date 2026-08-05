@@ -1,12 +1,18 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 // Generates durable active-recall flashcards for a concept, grounded in the
 // course's source chunks and biased toward the learner's mistakes. Same client
 // / JSON-extract / zod pattern as remediation-writer.ts.
 
 const CardSchema = z.object({
-  type: z.enum(['definition', 'cloze', 'scenario', 'misconception', 'comparison']),
+  type: z.enum([
+    "definition",
+    "cloze",
+    "scenario",
+    "misconception",
+    "comparison",
+  ]),
   front: z.string().min(3),
   back: z.string().min(2),
   sourceChunkIds: z.array(z.string()).default([]),
@@ -18,14 +24,12 @@ const CardSchema = z.object({
     .string()
     .nullish()
     .transform((v) => v ?? undefined),
-  difficulty: z.enum(['easy', 'medium', 'hard']),
+  difficulty: z.enum(["easy", "medium", "hard"]),
 });
 
 const CardsSchema = z.object({ cards: z.array(CardSchema).min(3).max(5) });
 
 export type GeneratedCard = z.infer<typeof CardSchema>;
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 export const SYSTEM = `
 You are an expert tutor writing high-quality active-recall flashcards for
@@ -49,15 +53,18 @@ export function buildPrompt(input: {
 }) {
   const chunksText = input.chunks
     .map((c) => `<chunk id="${c.id}">\n${c.text}\n</chunk>`)
-    .join('\n');
-  const mistakes = (input.mistakes ?? []).slice(0, 6).map((m) => `- ${m}`).join('\n');
+    .join("\n");
+  const mistakes = (input.mistakes ?? [])
+    .slice(0, 6)
+    .map((m) => `- ${m}`)
+    .join("\n");
 
   return `
 <task>
 Write ${input.count} active-recall flashcards for the concept: ${input.concept}
 </task>
 
-${mistakes ? `<observed_mistakes>\n${mistakes}\n</observed_mistakes>\n` : ''}
+${mistakes ? `<observed_mistakes>\n${mistakes}\n</observed_mistakes>\n` : ""}
 <atomicity>
 - One card tests ONE thing. A learner should answer it in 10–20 seconds.
 - Never combine multiple ideas, and never ask more than one question, in a card.
@@ -192,26 +199,36 @@ export function flashcardQualityIssues(card: {
   sourceQuote?: string;
 }): string[] {
   const issues: string[] = [];
-  const front = (card.front ?? '').trim();
-  const back = (card.back ?? '').trim();
+  const front = (card.front ?? "").trim();
+  const back = (card.back ?? "").trim();
 
-  if (VAGUE_FRONT_RE.some((re) => re.test(front))) issues.push(`vague front: "${front}"`);
-  if (front.length > FRONT_MAX) issues.push(`front too long (${front.length} chars)`);
-  if (back.length > BACK_MAX) issues.push(`back too long (${back.length} chars)`);
+  if (VAGUE_FRONT_RE.some((re) => re.test(front)))
+    issues.push(`vague front: "${front}"`);
+  if (front.length > FRONT_MAX)
+    issues.push(`front too long (${front.length} chars)`);
+  if (back.length > BACK_MAX)
+    issues.push(`back too long (${back.length} chars)`);
   // More than one "?" in the front signals two questions crammed into one card.
-  if ((front.match(/\?/g) ?? []).length > 1) issues.push('front asks more than one question');
+  if ((front.match(/\?/g) ?? []).length > 1)
+    issues.push("front asks more than one question");
 
   // Weak/simplistic shapes that read like school trivia rather than applied review.
-  if (/^\s*true or false\b/i.test(front)) issues.push(`"True or False" front: "${front}"`);
-  if (/^\s*according to\b/i.test(front)) issues.push(`"According to…" front references the source: "${front}"`);
+  if (/^\s*true or false\b/i.test(front))
+    issues.push(`"True or False" front: "${front}"`);
+  if (/^\s*according to\b/i.test(front))
+    issues.push(`"According to…" front references the source: "${front}"`);
   // Generic definition-only card: a short "what is/are X?" with no applied angle
   // (the "?" count guard above already excludes multi-part prompts).
-  if (card.type === 'definition' && /^\s*what (is|are)\b/i.test(front) && front.length <= 80) {
+  if (
+    card.type === "definition" &&
+    /^\s*what (is|are)\b/i.test(front) &&
+    front.length <= 80
+  ) {
     issues.push(`generic definition-only front: "${front}"`);
   }
   // Obvious fill-in-the-blank: a cloze whose answer is a single trivial token.
-  if (card.type === 'cloze' && BLANK_RE.test(front)) {
-    const ans = back.replace(/^answer:\s*/i, '').trim();
+  if (card.type === "cloze" && BLANK_RE.test(front)) {
+    const ans = back.replace(/^answer:\s*/i, "").trim();
     if (ans && ans.split(/\s+/).length <= 1 && ans.length <= 3) {
       issues.push(`obvious fill-in-the-blank (answer "${ans}")`);
     }
@@ -219,16 +236,17 @@ export function flashcardQualityIssues(card: {
 
   // A source quote belongs in sourceQuote; if it's pasted in and dominates the
   // back, the "answer" is really just a transcript snippet.
-  const quote = (card.sourceQuote ?? '').trim();
+  const quote = (card.sourceQuote ?? "").trim();
   if (quote && back.includes(quote) && quote.length >= back.length * 0.5) {
-    issues.push('source quote dominates the answer');
+    issues.push("source quote dominates the answer");
   }
 
   // Cloze blanks belong only in a cloze FRONT — never in the back, never in a
   // non-cloze front.
-  if (BLANK_RE.test(back)) issues.push('raw {{blank}} placeholder leaked into the back');
-  if (card.type !== 'cloze' && BLANK_RE.test(front)) {
-    issues.push('unexpected {{blank}} in a non-cloze front');
+  if (BLANK_RE.test(back))
+    issues.push("raw {{blank}} placeholder leaked into the back");
+  if (card.type !== "cloze" && BLANK_RE.test(front)) {
+    issues.push("unexpected {{blank}} in a non-cloze front");
   }
 
   return issues;
@@ -237,16 +255,16 @@ export function flashcardQualityIssues(card: {
 /** Corrective note appended to a single retry when cards have soft issues. */
 export function flashcardCorrectiveFeedback(issues: string[]): string {
   return [
-    'Your previous flashcards had quality problems. Fix them and regenerate:',
+    "Your previous flashcards had quality problems. Fix them and regenerate:",
     ...issues.map((i) => `- ${i}`),
-    '',
-    'Make every front an APPLIED prompt that tests decision-making, trade-offs,',
+    "",
+    "Make every front an APPLIED prompt that tests decision-making, trade-offs,",
     'or a common mistake — not "True or False", not "According to the source",',
-    'not a generic definition, and not something answerable by common sense.',
-    'Keep each back concise and structured (Answer / Why it matters / Watch out),',
-    'not a paragraph. Put any verbatim source text in sourceQuote, and use',
-    '{{blank}} only when the missing term is genuinely important and non-obvious.',
-  ].join('\n');
+    "not a generic definition, and not something answerable by common sense.",
+    "Keep each back concise and structured (Answer / Why it matters / Watch out),",
+    "not a paragraph. Put any verbatim source text in sourceQuote, and use",
+    "{{blank}} only when the missing term is genuinely important and non-obvious.",
+  ].join("\n");
 }
 
 export async function generateFlashcards(input: {
@@ -267,16 +285,18 @@ export async function generateFlashcards(input: {
       ? `${buildPrompt({ ...input, count })}\n\n<corrections>\n${correctiveNote}\n</corrections>`
       : buildPrompt({ ...input, count });
 
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 2500,
       temperature: 0.3,
       system: SYSTEM,
-      messages: [{ role: 'user', content: userContent }],
+      messages: [{ role: "user", content: userContent }],
     });
-    const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
     if (start === -1 || end === -1) continue;
 
     let cards: GeneratedCard[];
@@ -292,10 +312,13 @@ export async function generateFlashcards(input: {
 
     // First time we see soft issues: regenerate ONCE with corrective feedback.
     if (issues.length && !corrected) {
-      console.warn('[flashcard-writer] soft quality issues — one corrective retry', {
-        count: issues.length,
-        issues,
-      });
+      console.warn(
+        "[flashcard-writer] soft quality issues — one corrective retry",
+        {
+          count: issues.length,
+          issues,
+        },
+      );
       best = cards; // fallback if the corrective attempt is worse/unparseable
       correctiveNote = flashcardCorrectiveFeedback(issues);
       corrected = true;
@@ -303,10 +326,13 @@ export async function generateFlashcards(input: {
     }
 
     if (issues.length) {
-      console.warn('[flashcard-writer] soft quality issues remain after corrective retry (accepting)', {
-        count: issues.length,
-        issues,
-      });
+      console.warn(
+        "[flashcard-writer] soft quality issues remain after corrective retry (accepting)",
+        {
+          count: issues.length,
+          issues,
+        },
+      );
     }
     return cards;
   }
@@ -315,5 +341,5 @@ export async function generateFlashcards(input: {
   // earlier valid cards rather than failing over style.
   if (best) return best;
 
-  throw new Error('Failed to generate valid flashcards');
+  throw new Error("Failed to generate valid flashcards");
 }

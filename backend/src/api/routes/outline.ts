@@ -1,11 +1,12 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
-import OpenAI from 'openai';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
-import { generateOutlineFromChunks } from '../../agents/outliner';
-import { saveOutline } from '../../storage/course-artifacts';
-import { callCourseMetadata } from '../../courses/course-metadata-client';
-import { loadCourseManifest } from '../../storage/course-artifacts';
+import { Hono } from "hono";
+import { z } from "zod";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import { generateOutlineFromChunks } from "../../agents/outliner";
+import { saveOutline } from "../../storage/course-artifacts";
+import { callCourseMetadata } from "../../courses/course-metadata-client";
+import { loadCourseManifest } from "../../storage/course-artifacts";
+import { requireCourseAccess } from "../../auth/course-access";
+import { getOpenAiClient } from "../../config/provider-secrets";
 
 const Input = z.object({
   courseId: z.string(),
@@ -13,15 +14,13 @@ const Input = z.object({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 const lambda = new LambdaClient({});
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
 
@@ -30,11 +29,12 @@ async function embed(text: string): Promise<number[]> {
 
 export const outline = new Hono();
 
-outline.post('/', async (c) => {
+outline.post("/", async (c) => {
   const body = await c.req.json();
   const input = Input.parse(body);
+  const { userId } = await requireCourseAccess(c, input.courseId);
 
-  const query = input.query ?? 'main topics and concepts in this course';
+  const query = input.query ?? "main topics and concepts in this course";
   const embedding = await embed(query);
 
   const response = await lambda.send(
@@ -50,15 +50,13 @@ outline.post('/', async (c) => {
     }),
   );
 
-  const payload = JSON.parse(
-    new TextDecoder().decode(response.Payload),
-  );
+  const payload = JSON.parse(new TextDecoder().decode(response.Payload));
 
   if (!payload.results?.length) {
     return c.json(
       {
-        error: 'NO_CHUNKS_FOUND',
-        message: 'No embedded chunks found for this course.',
+        error: "NO_CHUNKS_FOUND",
+        message: "No embedded chunks found for this course.",
       },
       404,
     );
@@ -69,12 +67,13 @@ outline.post('/', async (c) => {
   const manifest = await loadCourseManifest(input.courseId);
 
   await callCourseMetadata({
-    action: 'upsert',
+    action: "upsert",
     courseId: input.courseId,
+    userId,
     title: generated.title,
     playlistUrl: manifest.playlistUrl,
     playlistId: manifest.playlistId,
-    status: 'READY',
+    status: "READY",
   });
 
   return c.json({

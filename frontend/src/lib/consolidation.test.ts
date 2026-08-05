@@ -5,319 +5,951 @@
 // route redirects (no 404, no second MCQ renderer), the session is the single
 // MCQ renderer scoped via the URL, and the course-detail entries point at the
 // canonical scoped session.
-import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-const root = join(__dirname, '..');
-const read = (p: string) => readFileSync(join(root, p), 'utf8');
+const root = join(__dirname, "..");
+const read = (p: string) => readFileSync(join(root, p), "utf8");
 
 // --- old "Study Chapter" URL redirects, renderer removed --------------------
-const chapter = read('app/courses/[courseId]/chapters/[chapterId]/page.tsx');
-assert.ok(/from 'next\/navigation'/.test(chapter) && /redirect\(/.test(chapter), 'chapter route redirects');
-assert.ok(/sessionHref\(/.test(chapter), 'chapter route redirects into the scoped session');
-assert.ok(!/'mcq'/.test(chapter), 'chapter route no longer renders MCQ');
-assert.ok(!/choices\.map/.test(chapter), 'chapter route no longer has its own choice renderer');
+const chapter = read("app/courses/[courseId]/chapters/[chapterId]/page.tsx");
+assert.ok(
+  /from ["']next\/navigation["']/.test(chapter) && /redirect\(/.test(chapter),
+  "chapter route redirects",
+);
+assert.ok(
+  /sessionHref\(/.test(chapter),
+  "chapter route redirects into the scoped session",
+);
+assert.ok(!/'mcq'/.test(chapter), "chapter route no longer renders MCQ");
+assert.ok(
+  !/choices\.map/.test(chapter),
+  "chapter route no longer has its own choice renderer",
+);
 
 // --- session is the single MCQ renderer, scoped by the URL ------------------
-const session = read('app/session/page.tsx');
-assert.ok(/McqChoices/.test(session), 'session uses the shared MCQ component');
-assert.ok(!/choices\.map/.test(session), 'session has no inline MCQ markup anymore');
-assert.ok(/parseSessionScope/.test(session), 'session reads the scope param');
-assert.ok(/getSessionToday\(scopeCourseId, scopeChapterId\)/.test(session), 'session passes course + chapter scope to the one endpoint');
+const session = read("app/session/page.tsx");
+assert.ok(/McqChoices/.test(session), "session uses the shared MCQ component");
+assert.ok(
+  !/choices\.map/.test(session),
+  "session has no inline MCQ markup anymore",
+);
+assert.ok(/parseSessionScope/.test(session), "session reads the scope param");
+assert.ok(
+  /getSessionToday\(scopeCourseId, scopeChapterId\)/.test(session),
+  "session passes course + chapter scope to the one endpoint",
+);
 
 // --- session question presentation is coaching copy, not raw metadata -------
-assert.ok(/questionHeading\(/.test(session), 'session uses the intentional question heading');
-assert.ok(!/'Quiz question'/.test(session), 'hard-coded "Quiz question" is gone');
-assert.ok(!/q\.difficulty/.test(session), 'raw difficulty is no longer rendered');
-assert.ok(!/concept_tags\?\.join/.test(session), 'raw joined concept_tags are no longer rendered');
-assert.ok(/taskContextLine\(/.test(session), 'session shows a coaching context line');
+assert.ok(
+  /questionHeading\(/.test(session),
+  "session uses the intentional question heading",
+);
+assert.ok(
+  !/'Quiz question'/.test(session),
+  'hard-coded "Quiz question" is gone',
+);
+assert.ok(
+  !/q\.difficulty/.test(session),
+  "raw difficulty is no longer rendered",
+);
+assert.ok(
+  !/concept_tags\?\.join/.test(session),
+  "raw joined concept_tags are no longer rendered",
+);
+assert.ok(
+  /taskContextLine\(/.test(session),
+  "session shows a coaching context line",
+);
 
 // --- course detail entries point at the canonical scoped session ------------
-const course = read('app/courses/[courseId]/page.tsx');
-assert.ok(/sessionHref\(courseId\)/.test(course), 'course-detail entries link to the scoped session');
+const course = read("app/courses/[courseId]/page.tsx");
+assert.ok(
+  /sessionHref\(courseId\)/.test(course),
+  "course-detail entries link to the scoped session",
+);
 assert.ok(
   !/\/courses\/\$\{courseId\}\/chapters\//.test(course),
-  'course detail no longer routes into the standalone chapter flow',
+  "course detail no longer routes into the standalone chapter flow",
 );
 
 // --- course page is the learning path / hub ---------------------------------
-assert.ok(/courseHero\(/.test(course), 'course page renders the started-aware hero');
-assert.ok(/Chapter \{i \+ 1\}/.test(course), 'chapters are numbered as a path');
-assert.ok(/firstIncompleteIndex/.test(course) && /isStartHere/.test(course), 'first incomplete chapter drives the prominent CTA');
+assert.ok(
+  /courseHero\(/.test(course),
+  "course page renders the started-aware hero",
+);
+assert.ok(/Chapter \{i \+ 1\}/.test(course), "chapters are numbered as a path");
+assert.ok(
+  /firstIncompleteIndex/.test(course) && /isStartHere/.test(course),
+  "first incomplete chapter drives the prominent CTA",
+);
 
 // --- calm learner-facing chapter labels (Task 7) ----------------------------
 assert.ok(!/'Quiz ready'|Quiz ready/.test(course), 'no raw "Quiz ready" badge');
 assert.ok(!/Study chapter/.test(course), 'no "Study chapter" label');
-assert.ok(/quizBadge\(/.test(course), 'badge uses quizBadge()');
-assert.ok(/chapterQuestionsLabel\(/.test(course), 'question count uses chapterQuestionsLabel()');
-assert.ok(/chapterCtaLabel\(/.test(course), 'CTA uses chapterCtaLabel()');
-assert.ok(!/Start here<\/span>/.test(course), 'header "Start here" pill removed');
+assert.ok(/quizBadge\(/.test(course), "badge uses quizBadge()");
+assert.ok(
+  /chapterQuestionsLabel\(/.test(course),
+  "question count uses chapterQuestionsLabel()",
+);
+assert.ok(/chapterCtaLabel\(/.test(course), "CTA uses chapterCtaLabel()");
+assert.ok(
+  !/Start here<\/span>/.test(course),
+  'header "Start here" pill removed',
+);
 
 // --- flashcard post-rating copy uses the friendly helper --------------------
-const sessionPage = read('app/session/page.tsx');
-const flashcardsPage = read('app/flashcards/page.tsx');
-for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
-  assert.ok(/flashcardRatedLine\(/.test(src), `${name} uses flashcardRatedLine`);
+const sessionPage = read("app/session/page.tsx");
+const flashcardsPage = read("app/flashcards/page.tsx");
+for (const [name, src] of [
+  ["session", sessionPage],
+  ["flashcards", flashcardsPage],
+] as const) {
+  assert.ok(
+    /flashcardRatedLine\(/.test(src),
+    `${name} uses flashcardRatedLine`,
+  );
   assert.ok(!/Rated <span/.test(src), `${name} no raw "Rated {rating}" copy`);
   // Cloze placeholders are rendered as learner-friendly blanks.
   assert.ok(/renderClozeText\(/.test(src), `${name} renders cloze blanks`);
 }
 
 // --- structured flashcard back + rating prompt (Tasks 14–15) -----------------
-const flashcardBack = read('components/FlashcardBack.tsx');
-for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
+const flashcardBack = read("components/FlashcardBack.tsx");
+for (const [name, src] of [
+  ["session", sessionPage],
+  ["flashcards", flashcardsPage],
+] as const) {
   // A clear rating prompt appears before Again/Hard/Good/Easy.
-  assert.ok(/FLASHCARD_RATING_PROMPT/.test(src), `${name} shows the flashcard rating prompt`);
+  assert.ok(
+    /FLASHCARD_RATING_PROMPT/.test(src),
+    `${name} shows the flashcard rating prompt`,
+  );
   // Both review surfaces render the one shared, readable back component (the
   // chosen helper that wraps parseFlashcardBack).
-  assert.ok(/FlashcardBack/.test(src), `${name} renders the shared FlashcardBack`);
+  assert.ok(
+    /FlashcardBack/.test(src),
+    `${name} renders the shared FlashcardBack`,
+  );
   // The raw source quote / misconception are no longer dumped inline as answer.
-  assert.ok(!/back\.sourceQuote &&/.test(src), `${name} no longer renders the source quote inline`);
+  assert.ok(
+    !/back\.sourceQuote &&/.test(src),
+    `${name} no longer renders the source quote inline`,
+  );
   assert.ok(
     !/Watch out: \{back\.misconceptionTarget\}/.test(src),
     `${name} no longer renders the misconception inline`,
   );
   // RatingButtons is still the rating control — behavior is not bypassed.
-  assert.ok(/RatingButtons/.test(src), `${name} still drives ratings through RatingButtons`);
+  assert.ok(
+    /RatingButtons/.test(src),
+    `${name} still drives ratings through RatingButtons`,
+  );
 }
 // --- calmer review framing + concise feedback (Task 17) ---------------------
-for (const [name, src] of [['session', sessionPage], ['flashcards', flashcardsPage]] as const) {
+for (const [name, src] of [
+  ["session", sessionPage],
+  ["flashcards", flashcardsPage],
+] as const) {
   // Loud uppercase "Flashcard · <concept>" header replaced by a calm eyebrow.
-  assert.ok(!/Flashcard · /.test(src), `${name} drops the loud "Flashcard ·" header`);
-  assert.ok(/FLASHCARD_REVIEW_EYEBROW/.test(src), `${name} uses the calm "Review" eyebrow`);
+  assert.ok(
+    !/Flashcard · /.test(src),
+    `${name} drops the loud "Flashcard ·" header`,
+  );
+  assert.ok(
+    /FLASHCARD_REVIEW_EYEBROW/.test(src),
+    `${name} uses the calm "Review" eyebrow`,
+  );
   // Post-rating reads as progress, not a debug log.
-  assert.ok(/FLASHCARD_SAVED_LABEL/.test(src), `${name} shows "Saved for review" after rating`);
+  assert.ok(
+    /FLASHCARD_SAVED_LABEL/.test(src),
+    `${name} shows "Saved for review" after rating`,
+  );
   // Frontend copy never forces "According to the video/source material".
-  assert.ok(!/According to the (video|source)/i.test(src), `${name} has no "According to…" copy`);
+  assert.ok(
+    !/According to the (video|source)/i.test(src),
+    `${name} has no "According to…" copy`,
+  );
 }
 // Quiz feedback leads with a concise takeaway that doesn't repeat the verdict.
-assert.ok(/feedbackTakeaway\(/.test(sessionPage), 'feedback derives a verdict-free takeaway');
-assert.ok(/Takeaway/.test(sessionPage), 'feedback shows a "Takeaway" first');
-assert.ok(/Show details/.test(sessionPage), 'long feedback detail is behind "Show details"');
 assert.ok(
-  /Model answer[\s\S]{0,160}<\/summary>|<summary[\s\S]{0,80}Model answer/.test(sessionPage),
-  'the model answer is collapsed in a <details> disclosure',
+  /feedbackTakeaway\(/.test(sessionPage),
+  "feedback derives a verdict-free takeaway",
+);
+assert.ok(/Takeaway/.test(sessionPage), 'feedback shows a "Takeaway" first');
+assert.ok(
+  /Show details/.test(sessionPage),
+  'long feedback detail is behind "Show details"',
+);
+assert.ok(
+  /Model answer[\s\S]{0,160}<\/summary>|<summary[\s\S]{0,80}Model answer/.test(
+    sessionPage,
+  ),
+  "the model answer is collapsed in a <details> disclosure",
 );
 
 // --- coach-like MCQ feedback (Task 19) --------------------------------------
 // Status comes from the shared helper (no ad-hoc "Correct"/"Not quite" strings).
-assert.ok(/feedbackStatusLabel\(/.test(sessionPage), 'status uses feedbackStatusLabel');
+assert.ok(
+  /feedbackStatusLabel\(/.test(sessionPage),
+  "status uses feedbackStatusLabel",
+);
 // Incorrect MCQ surfaces the correct option plainly, not buried in prose.
-assert.ok(/correctAnswerLabel\(/.test(sessionPage), 'incorrect MCQ derives the correct option');
-assert.ok(/Correct answer:/.test(sessionPage), 'incorrect MCQ shows "Correct answer:"');
+assert.ok(
+  /correctAnswerLabel\(/.test(sessionPage),
+  "incorrect MCQ derives the correct option",
+);
+assert.ok(
+  /Correct answer:/.test(sessionPage),
+  'incorrect MCQ shows "Correct answer:"',
+);
 // The takeaway is rendered above (separate from) the collapsed details.
 assert.ok(
-  sessionPage.indexOf('Takeaway') < sessionPage.indexOf('Show details'),
-  'takeaway is shown before the collapsed details',
+  sessionPage.indexOf("Takeaway") < sessionPage.indexOf("Show details"),
+  "takeaway is shown before the collapsed details",
 );
 // Optional "why your answer was tempting" comes from the mix-up note.
-assert.ok(/mixUpNote\(/.test(sessionPage) && /Why your answer was tempting/.test(sessionPage), 'optional "tempting" note when available');
+assert.ok(
+  /mixUpNote\(/.test(sessionPage) &&
+    /Why your answer was tempting/.test(sessionPage),
+  'optional "tempting" note when available',
+);
 
 // --- no internal wording in learner-facing feedback (Task 20) ---------------
 // Generated feedback text is scrubbed of internal terms ("chunk", etc.).
-assert.ok(/scrubInternalWording\(/.test(sessionPage), 'session feedback scrubs internal wording');
-assert.ok(/scrubInternalWording/.test(flashcardBack), 'flashcard back scrubs internal wording (incl. source note)');
+assert.ok(
+  /scrubInternalWording\(/.test(sessionPage),
+  "session feedback scrubs internal wording",
+);
+assert.ok(
+  /scrubInternalWording/.test(flashcardBack),
+  "flashcard back scrubs internal wording (incl. source note)",
+);
 // Details use the de-duplicating helper (no repeat of the takeaway sentence).
-assert.ok(/feedbackDetail\(/.test(sessionPage), 'details use feedbackDetail (no duplicated takeaway)');
+assert.ok(
+  /feedbackDetail\(/.test(sessionPage),
+  "details use feedbackDetail (no duplicated takeaway)",
+);
 // Correct vs incorrect get a warmer eyebrow.
-assert.ok(/feedbackEyebrow\(/.test(sessionPage), 'takeaway eyebrow adapts (Remember this / Takeaway)');
+assert.ok(
+  /feedbackEyebrow\(/.test(sessionPage),
+  "takeaway eyebrow adapts (Remember this / Takeaway)",
+);
 
 // The shared back parses into labeled sections and protects cloze.
-assert.ok(/parseFlashcardBack\(/.test(flashcardBack), 'back is parsed into labeled sections');
-assert.ok(/renderClozeText\(/.test(flashcardBack), 'flashcard back renders cloze blanks as "_____"');
+assert.ok(
+  /parseFlashcardBack\(/.test(flashcardBack),
+  "back is parsed into labeled sections",
+);
+assert.ok(
+  /renderClozeText\(/.test(flashcardBack),
+  'flashcard back renders cloze blanks as "_____"',
+);
 // Section + source labels come from the shared copy constants.
-assert.ok(/FLASHCARD_ANSWER_LABEL/.test(flashcardBack), 'uses the Answer label');
-assert.ok(/FLASHCARD_WATCH_OUT_LABEL/.test(flashcardBack), 'uses the Watch out label');
+assert.ok(
+  /FLASHCARD_ANSWER_LABEL/.test(flashcardBack),
+  "uses the Answer label",
+);
+assert.ok(
+  /FLASHCARD_WATCH_OUT_LABEL/.test(flashcardBack),
+  "uses the Watch out label",
+);
 // The source note is tucked behind a subtle <details> disclosure, not inline.
-assert.ok(/FLASHCARD_SOURCE_NOTE_LABEL/.test(flashcardBack), 'uses the "Source note" label');
-assert.ok(/<details/.test(flashcardBack) && /<summary/.test(flashcardBack), 'source note uses a <details> disclosure');
+assert.ok(
+  /FLASHCARD_SOURCE_NOTE_LABEL/.test(flashcardBack),
+  'uses the "Source note" label',
+);
+assert.ok(
+  /<details/.test(flashcardBack) && /<summary/.test(flashcardBack),
+  "source note uses a <details> disclosure",
+);
 // Malformed answers keep their defensive "skip this card" guard.
-assert.ok(/back\.malformed/.test(flashcardBack), 'malformed-answer guard is preserved');
+assert.ok(
+  /back\.malformed/.test(flashcardBack),
+  "malformed-answer guard is preserved",
+);
 
 // --- chapter CTA is chapter-scoped (Task 11) --------------------------------
-assert.ok(/sessionHref\(courseId, chapter\.id\)/.test(course), 'chapter CTA links to a chapter-scoped session');
-const chapterRedirect = read('app/courses/[courseId]/chapters/[chapterId]/page.tsx');
-assert.ok(/sessionHref\(courseId, chapterId\)/.test(chapterRedirect), 'old chapter route redirects with chapterId');
+assert.ok(
+  /sessionHref\(courseId, chapter\.id\)/.test(course),
+  "chapter CTA links to a chapter-scoped session",
+);
+const chapterRedirect = read(
+  "app/courses/[courseId]/chapters/[chapterId]/page.tsx",
+);
+assert.ok(
+  /sessionHref\(courseId, chapterId\)/.test(chapterRedirect),
+  "old chapter route redirects with chapterId",
+);
 
 // --- focus practice drops raw metadata, uses coached copy -------------------
-const focus = read('app/courses/[courseId]/focus/[concept]/page.tsx');
-assert.ok(!/question\.difficulty/.test(focus), 'focus page no longer renders raw difficulty');
-assert.ok(!/concept_tags\?\.join/.test(focus), 'focus page no longer renders joined concept_tags');
-assert.ok(/FOCUS_EYEBROW/.test(focus) && /FOCUS_CONTEXT/.test(focus), 'focus page uses coached copy');
+const focus = read("app/courses/[courseId]/focus/[concept]/page.tsx");
+assert.ok(
+  !/question\.difficulty/.test(focus),
+  "focus page no longer renders raw difficulty",
+);
+assert.ok(
+  !/concept_tags\?\.join/.test(focus),
+  "focus page no longer renders joined concept_tags",
+);
+assert.ok(
+  /FOCUS_EYEBROW/.test(focus) && /FOCUS_CONTEXT/.test(focus),
+  "focus page uses coached copy",
+);
 
 // --- polish pass: calmer metrics, source labels, unified buttons (Task 12) ---
 // Internal metric labels are renamed/tucked (the literal labels are gone).
-assert.ok(!/>Retention</.test(course) && !/'Retention'/.test(course), 'no "Retention" label');
+assert.ok(
+  !/>Retention</.test(course) && !/'Retention'/.test(course),
+  'no "Retention" label',
+);
 assert.ok(!/Forgotten/.test(course), 'no "Forgotten" label');
-assert.ok(!/Mastered \/ Learning/.test(course), 'no "Mastered / Learning" label');
+assert.ok(
+  !/Mastered \/ Learning/.test(course),
+  'no "Mastered / Learning" label',
+);
 assert.ok(!/reviews\/day/.test(course), 'no planner "reviews/day" wording');
-assert.ok(/showMetricDetails/.test(course), 'analytical metrics behind a Details disclosure');
+assert.ok(
+  /showMetricDetails/.test(course),
+  "analytical metrics behind a Details disclosure",
+);
 // Focus block is no longer a yellow warning container.
 assert.ok(
   !/border-yellow-800 bg-yellow-950\/30/.test(course),
-  'focus block no longer uses the warning-yellow container',
+  "focus block no longer uses the warning-yellow container",
 );
 // Primary CTAs share one style.
-assert.ok(/primaryButtonClass/.test(course), 'course page CTAs use primaryButtonClass');
-assert.ok(/primaryButtonClass/.test(read('components/CourseCard.tsx')), 'course card uses primaryButtonClass');
-assert.ok(/primaryButtonClass/.test(read('app/page.tsx')), 'home plan CTA uses primaryButtonClass');
-assert.ok(/primaryButtonClass/.test(session), 'session Next task uses primaryButtonClass');
+assert.ok(
+  /primaryButtonClass/.test(course),
+  "course page CTAs use primaryButtonClass",
+);
+assert.ok(
+  /primaryButtonClass/.test(read("components/CourseCard.tsx")),
+  "course card uses primaryButtonClass",
+);
+assert.ok(
+  /primaryButtonClass/.test(read("app/page.tsx")),
+  "home plan CTA uses primaryButtonClass",
+);
+assert.ok(
+  /primaryButtonClass/.test(session),
+  "session Next task uses primaryButtonClass",
+);
 // Course card shows no raw URL.
-assert.ok(!/sourceUrl \?\? course\.playlistUrl/.test(read('components/CourseCard.tsx')), 'card no longer renders a raw source URL');
+assert.ok(
+  !/sourceUrl \?\? course\.playlistUrl/.test(read("components/CourseCard.tsx")),
+  "card no longer renders a raw source URL",
+);
 
 // --- session feedback copy: "Model answer" not "Ideal answer" ----------------
 assert.ok(/Model answer/.test(session), 'session uses "Model answer"');
-assert.ok(!/Ideal answer/.test(session), 'session no longer uses "Ideal answer"');
+assert.ok(
+  !/Ideal answer/.test(session),
+  'session no longer uses "Ideal answer"',
+);
 
 // --- not-started hides analytics; started shows ONE compact card (Task 19) --
-assert.ok(/const started = progressView\.started/.test(course), 'single started flag is computed');
 assert.ok(
-  /started && \(progress \|\| retention \|\| cardsDue \|\| course\.metadata\?\.targetDate\) &&/.test(course),
-  'one compact progress/review card, gated on started',
+  /const started = progressView\.started/.test(course),
+  "single started flag is computed",
+);
+assert.ok(
+  /started\s*&&\s*\(\s*progress\s*\|\|\s*retention\s*\|\|\s*cardsDue\s*\|\|\s*course\.metadata\?\.targetDate\s*\)\s*&&/.test(
+    course,
+  ),
+  "one compact progress/review card, gated on started",
 );
 // The two old sparse cards are merged: no separate standalone metrics card.
 assert.ok(
-  !/started && \(course\.metadata\?\.targetDate \|\| retention \|\| cardsDue\) &&/.test(course),
-  'no separate standalone review/metrics card remains',
+  !/started && \(course\.metadata\?\.targetDate \|\| retention \|\| cardsDue\) &&/.test(
+    course,
+  ),
+  "no separate standalone review/metrics card remains",
 );
 // Review-waiting is an inline stat using the shared (reframed) label.
-assert.ok(/METRIC_READY_TO_REVIEW_LABEL/.test(course), 'review-waiting uses the shared label');
+assert.ok(
+  /METRIC_READY_TO_REVIEW_LABEL/.test(course),
+  "review-waiting uses the shared label",
+);
 
 // --- chapter cards are outcome-focused, with one prominent entry CTA --------
-assert.ok(/chapter\.learning_objectives\?\.length/.test(course), 'renders learning objectives when present');
-assert.ok(/CHAPTER_OUTCOMES_INTRO/.test(course), 'uses the outcomes intro copy');
-assert.ok(/text=\{chapter\.summary\}/.test(course), 'falls back to the summary when objectives are missing');
 assert.ok(
-  /quizState === 'READY' && isStartHere &&/.test(course),
-  'only the Start-here chapter shows the prominent learning-entry CTA',
+  /chapter\.learning_objectives\?\.length/.test(course),
+  "renders learning objectives when present",
+);
+assert.ok(
+  /CHAPTER_OUTCOMES_INTRO/.test(course),
+  "uses the outcomes intro copy",
+);
+assert.ok(
+  /text=\{chapter\.summary\}/.test(course),
+  "falls back to the summary when objectives are missing",
+);
+assert.ok(
+  /quizState === ["']READY["']\s*&&\s*isStartHere\s*&&/.test(course),
+  "only the Start-here chapter shows the prominent learning-entry CTA",
 );
 // Quiz readiness controls are untouched (not regressed).
-assert.ok(/quizState === 'GENERATING'/.test(course) && /quizState === 'NOT_STARTED'/.test(course), 'generate/generating quiz controls remain');
+assert.ok(
+  /quizState === ["']GENERATING["']/.test(course) &&
+    /quizState === ["']NOT_STARTED["']/.test(course),
+  "generate/generating quiz controls remain",
+);
 
 // --- reduced text density: short cards by default (Task 13) ------------------
 // Chapter cards limit visible learning objectives by default, with a toggle for
 // the rest (full depth preserved on demand).
-assert.ok(/DEFAULT_VISIBLE_OBJECTIVES/.test(course), 'chapter objectives are limited to a default count');
-assert.ok(/expandedObjectives/.test(course), 'chapter objectives have a Show more/less toggle');
-assert.ok(/showMoreLabel\(/.test(course), 'chapter objectives toggle uses coach-like Show more/less copy');
-assert.ok(!/chapter\.learning_objectives\.map\(/.test(course), 'chapter no longer renders every objective unconditionally');
+assert.ok(
+  /DEFAULT_VISIBLE_OBJECTIVES/.test(course),
+  "chapter objectives are limited to a default count",
+);
+assert.ok(
+  /expandedObjectives/.test(course),
+  "chapter objectives have a Show more/less toggle",
+);
+assert.ok(
+  /showMoreLabel\(/.test(course),
+  "chapter objectives toggle uses coach-like Show more/less copy",
+);
+assert.ok(
+  !/chapter\.learning_objectives\.map\(/.test(course),
+  "chapter no longer renders every objective unconditionally",
+);
 
 // Focus block shows only the top few areas by default (was 5 → now a small default).
-assert.ok(/focusAreas\.slice\(0, DEFAULT_VISIBLE_FOCUS_AREAS\)/.test(course), 'focus areas limited to the top N by default');
-assert.ok(!/slice\(0, 5\)/.test(course), 'focus areas no longer default to showing 5');
-assert.ok(/focusListToggleLabel\(/.test(course), 'focus list uses "Show more focus areas" affordance');
+assert.ok(
+  /focusAreas\.slice\(0, DEFAULT_VISIBLE_FOCUS_AREAS\)/.test(course),
+  "focus areas limited to the top N by default",
+);
+assert.ok(
+  !/slice\(0, 5\)/.test(course),
+  "focus areas no longer default to showing 5",
+);
+assert.ok(
+  /focusListToggleLabel\(/.test(course),
+  'focus list uses "Show more focus areas" affordance',
+);
 
 // Raw "Covers: …" concept detail is tucked behind a subtle details control,
 // not always on screen.
-assert.ok(/expandedCovers/.test(course), 'raw "Covers:" detail is behind a details toggle');
-assert.ok(/detailsToggleLabel\(/.test(course), 'covers detail uses a Show/Hide details control');
+assert.ok(
+  /expandedCovers/.test(course),
+  'raw "Covers:" detail is behind a details toggle',
+);
+assert.ok(
+  /detailsToggleLabel\(/.test(course),
+  "covers detail uses a Show/Hide details control",
+);
 assert.ok(
   /expandedCovers\[item\.conceptSlug\] &&[\s\S]{0,1500}Covers:/.test(course),
   '"Covers:" only renders when its details toggle is expanded',
 );
 // Coach's-pick rows are concise (Task 19): short reason + diagnostics collapsed.
-assert.ok(/truncateCoachText\(/.test(course), 'focus reason is hard-truncated to stay short');
+assert.ok(
+  /truncateCoachText\(/.test(course),
+  "focus reason is hard-truncated to stay short",
+);
 assert.ok(
   /expandedCovers\[item\.conceptSlug\] &&[\s\S]{0,400}% there/.test(course),
   'the "% there"/trend diagnostics are inside the collapsed details, not the row',
 );
 
 // --- READY course card opens the course page, not a session -----------------
-const card = read('components/CourseCard.tsx');
-assert.ok(/courseCardView\(/.test(card), 'READY card CTA/status comes from the shared course-card view');
-assert.ok(!/sessionHref/.test(card), 'card no longer links straight into a session');
+const card = read("components/CourseCard.tsx");
+assert.ok(
+  /courseCardView\(/.test(card),
+  "READY card CTA/status comes from the shared course-card view",
+);
+assert.ok(
+  !/sessionHref/.test(card),
+  "card no longer links straight into a session",
+);
 
 // --- home page is a command center, not a generator dashboard (Task 8) ------
-const home = read('app/page.tsx');
-assert.ok(/homeMode\(/.test(home), 'home uses homeMode');
-assert.ok(/HOME_VALUE_PROP/.test(home) && /HOME_HERO_HEADLINE/.test(home), 'home uses the coach hero copy');
+const home = read("app/page.tsx");
+assert.ok(/homeMode\(/.test(home), "home uses homeMode");
+assert.ok(
+  /HOME_VALUE_PROP/.test(home) && /HOME_HERO_HEADLINE/.test(home),
+  "home uses the coach hero copy",
+);
 assert.ok(/TODAYS_PLAN_LABEL/.test(home), 'home uses "Today\'s learning plan"');
-assert.ok(/CONTINUE_LEARNING_LABEL/.test(home), 'home plan CTA is "Continue learning"');
+assert.ok(
+  /CONTINUE_LEARNING_LABEL/.test(home),
+  'home plan CTA is "Continue learning"',
+);
 assert.ok(/YOUR_COURSES_LABEL/.test(home), 'home uses "Your courses"');
-assert.ok(/CREATE_LEARNING_PATH_LABEL/.test(home), 'home uses "Create learning path"');
+assert.ok(
+  /CREATE_LEARNING_PATH_LABEL/.test(home),
+  'home uses "Create learning path"',
+);
 // creationPanel is defined once and reused, not duplicated.
-assert.strictEqual((home.match(/const creationPanel =/g) ?? []).length, 1, 'creationPanel defined once');
-assert.ok((home.match(/\{creationPanel\}/g) ?? []).length >= 2, 'creationPanel reused in both layouts');
+assert.strictEqual(
+  (home.match(/const creationPanel =/g) ?? []).length,
+  1,
+  "creationPanel defined once",
+);
+assert.ok(
+  (home.match(/\{creationPanel\}/g) ?? []).length >= 2,
+  "creationPanel reused in both layouts",
+);
 // No internal/generator wording remains.
-for (const bad of ['adaptive AI course', "Today's Goal", 'Start Session', 'My Courses', '/day target']) {
+for (const bad of [
+  "adaptive AI course",
+  "Today's Goal",
+  "Start Session",
+  "My Courses",
+  "/day target",
+]) {
   assert.ok(!home.includes(bad), `home page still contains "${bad}"`);
 }
 
 // --- demo polish: state-aware cards + learner-facing plan (Task 18) ----------
 // Course card CTA/status adapts to progress ("Continue" vs "Start course").
-assert.ok(/courseCardView\(/.test(card), 'course card CTA/status is state-aware');
-assert.ok(/progress=\{progressByCourse/.test(home), 'home feeds per-course progress to its cards');
+assert.ok(
+  /courseCardView\(/.test(card),
+  "course card CTA/status is state-aware",
+);
+assert.ok(
+  /progress=\{progressByCourse/.test(home),
+  "home feeds per-course progress to its cards",
+);
 // Plan breakdown reads as learner-facing "practice items" and hides 0-task rows.
-assert.ok(/WHATS_INCLUDED_LABEL/.test(home), 'breakdown uses "What\'s included today"');
-assert.ok(/practiceItemsLabel\(/.test(home), 'breakdown rows read as "N practice items"');
-assert.ok(/visibleBreakdownCourses\(/.test(home), 'breakdown hides 0-task courses');
-assert.ok(!/task\{co\.taskCount === 1/.test(home), 'breakdown no longer shows raw "N task(s)"');
+assert.ok(
+  /WHATS_INCLUDED_LABEL/.test(home),
+  'breakdown uses "What\'s included today"',
+);
+assert.ok(
+  /practiceItemsLabel\(/.test(home),
+  'breakdown rows read as "N practice items"',
+);
+assert.ok(
+  /visibleBreakdownCourses\(/.test(home),
+  "breakdown hides 0-task courses",
+);
+assert.ok(
+  !/task\{co\.taskCount === 1/.test(home),
+  'breakdown no longer shows raw "N task(s)"',
+);
 // Add-material is a premium "create" card.
-assert.ok(/CREATE_NEW_PATH_HEADING/.test(home), 'add-material reads "Create a new learning path"');
-assert.ok(!/>Add new material</.test(home), 'no leftover "Add new material" eyebrow');
+assert.ok(
+  /CREATE_NEW_PATH_HEADING/.test(home),
+  'add-material reads "Create a new learning path"',
+);
+assert.ok(
+  !/>Add new material</.test(home),
+  'no leftover "Add new material" eyebrow',
+);
 // Course-page review metric is reframed via the shared (renamed) label.
-assert.ok(/METRIC_READY_TO_REVIEW_LABEL/.test(course), 'course page uses the shared review-cards label');
-assert.ok(!/Ready to review/.test(course) && !/Ready to review/.test(home), 'no raw "Ready to review" literal remains');
+assert.ok(
+  /METRIC_READY_TO_REVIEW_LABEL/.test(course),
+  "course page uses the shared review-cards label",
+);
+assert.ok(
+  !/Ready to review/.test(course) && !/Ready to review/.test(home),
+  'no raw "Ready to review" literal remains',
+);
 
 // --- signed-out first touch is branded (Task 10) ----------------------------
-const signIn = read('app/sign-in/[[...sign-in]]/page.tsx');
-assert.ok(/HOME_HERO_HEADLINE/.test(signIn) && /HOME_VALUE_PROP/.test(signIn), 'sign-in reuses the home value prop (no duplicated copy)');
-assert.ok(/<SignIn\b/.test(signIn), 'sign-in still renders the Clerk SignIn widget');
-assert.ok(/Curriq/.test(signIn), 'sign-in shows the Curriq wordmark');
+const signIn = read("app/sign-in/[[...sign-in]]/page.tsx");
+assert.ok(
+  /HOME_HERO_HEADLINE/.test(signIn) && /HOME_VALUE_PROP/.test(signIn),
+  "sign-in reuses the home value prop (no duplicated copy)",
+);
+assert.ok(
+  /<SignIn\b/.test(signIn),
+  "sign-in still renders the Clerk SignIn widget",
+);
+assert.ok(/Curriq/.test(signIn), "sign-in shows the Curriq wordmark");
+assert.ok(
+  /HOME_HERO_EYEBROW/.test(signIn),
+  "sign-in uses the shared hero eyebrow (no duplicated literal)",
+);
 
-// --- document metadata is guided-learning-path positioning ------------------
-const layout = read('app/layout.tsx');
-assert.ok(!/adaptive AI course/.test(layout), 'layout metadata drops "adaptive AI course"');
-assert.ok(/guided learning path/i.test(layout), 'layout metadata uses guided-learning-path positioning');
+// --- public landing page is the signed-out first impression (Task 21) -------
+const landing = read("components/Landing.tsx");
+const preview = read("components/ProductPreview.tsx");
+const proxySrc = read("proxy.ts");
+
+// Landing reuses the shared hero/value-prop copy — never duplicates the pitch.
+assert.ok(
+  /HOME_HERO_EYEBROW/.test(landing) &&
+    /HOME_HERO_HEADLINE/.test(landing) &&
+    /HOME_VALUE_PROP/.test(landing),
+  "landing reuses the shared hero eyebrow/headline/value-prop constants",
+);
+assert.ok(
+  /aria-label="Curriq"/.test(landing),
+  "landing shows the Curriq wordmark",
+);
+// Every CTA on the landing page leads to the existing sign-in flow.
+assert.ok(
+  (landing.match(/href="\/sign-in"/g) ?? []).length >= 2,
+  "multiple landing CTAs link to /sign-in",
+);
+assert.ok(
+  !/href="\/sign-up"/.test(landing),
+  "landing does not bypass the existing sign-in flow",
+);
+// The product preview is a real component (no external screenshot asset).
+assert.ok(
+  /<ProductPreview/.test(landing),
+  "landing renders the product preview component",
+);
+assert.ok(
+  !/\.(png|jpe?g|webp|gif)"/.test(landing),
+  "landing uses no screenshot image assets",
+);
+// How-it-works / value / focused-learning sections are wired to their copy.
+assert.ok(
+  /HOW_IT_WORKS_STEPS/.test(landing),
+  "landing renders the how-it-works steps",
+);
+assert.ok(/VALUE_CARDS/.test(landing), "landing renders the value cards");
+assert.ok(
+  /FOCUSED_LEARNING_POINTS/.test(landing),
+  "landing renders the focused-learning strip",
+);
+assert.ok(
+  /primaryButtonClass/.test(landing),
+  "landing CTAs use the shared primary button style",
+);
+
+// The dashboard is preserved: page.tsx still gates the landing behind signed-
+// out state and no longer force-redirects (sign-in is reached via the landing
+// CTA / Clerk, not a useEffect redirect).
+assert.ok(
+  /<Landing\s*\/>/.test(home),
+  "home renders the public Landing component for signed-out visitors",
+);
+assert.ok(/!isSignedIn/.test(home), "home branches on the signed-out state");
+assert.ok(
+  !/router\.replace\(.\/sign-in.\)/.test(home),
+  "home no longer force-redirects to /sign-in",
+);
+// All the existing dashboard markers (Task 8 assertions above) still apply to
+// the SAME file — the dashboard was not extracted or duplicated elsewhere.
+assert.ok(
+  /homeMode\(/.test(home) && /TODAYS_PLAN_LABEL/.test(home),
+  "the learner dashboard still lives in page.tsx, unduplicated",
+);
+
+// Clerk middleware: "/" is public so the landing renders without a server
+// redirect, while every other app/course/session/API route stays protected.
+assert.ok(
+  /createRouteMatcher\(\[\s*["']\/["'],/.test(proxySrc),
+  "'/' is a public route in the Clerk middleware",
+);
+assert.ok(
+  /["']\/sign-in\(\.\*\)["']/.test(proxySrc) &&
+    /["']\/sign-up\(\.\*\)["']/.test(proxySrc),
+  "sign-in/up remain public too",
+);
+assert.ok(
+  /auth\.protect\(\)/.test(proxySrc),
+  "non-public routes still call auth.protect()",
+);
+
+// --- document metadata is interview-prep-wedge positioning ------------------
+const layout = read("app/layout.tsx");
+assert.ok(
+  !/adaptive AI course/.test(layout),
+  'layout metadata drops "adaptive AI course"',
+);
+assert.ok(
+  /spaced-repetition/i.test(layout),
+  "layout metadata leads with retention",
+);
+assert.ok(
+  /interview/i.test(layout),
+  "layout metadata names the interview wedge",
+);
 
 // --- flashcards reuse the shared rating control (no duplicate RATINGS) -------
-const flashcards = read('app/flashcards/page.tsx');
-assert.ok(/RatingButtons/.test(flashcards), 'flashcards use the shared rating control');
-assert.ok(!/const RATINGS/.test(flashcards), 'flashcards no longer define their own RATINGS');
+const flashcards = read("app/flashcards/page.tsx");
+assert.ok(
+  /RatingButtons/.test(flashcards),
+  "flashcards use the shared rating control",
+);
+assert.ok(
+  !/const RATINGS/.test(flashcards),
+  "flashcards no longer define their own RATINGS",
+);
 
 // --- shared premium visual language applied across screens (Task 16) ---------
 // Every screen pulls the page background/gradient from the one shared shell.
 for (const [name, src] of [
-  ['home', home],
-  ['session', session],
-  ['course', course],
-  ['flashcards', flashcards],
-  ['focus', focus],
+  ["home", home],
+  ["session", session],
+  ["course", course],
+  ["flashcards", flashcards],
+  ["focus", focus],
+  ["landing", landing],
 ] as const) {
   assert.ok(/pageShell/.test(src), `${name} uses the shared page shell`);
 }
 // Key CTA surfaces pull the primary button from the one shared visual language.
 for (const [name, src] of [
-  ['home', home],
-  ['session', session],
-  ['course', course],
-  ['card', card],
+  ["home", home],
+  ["session", session],
+  ["course", course],
+  ["card", card],
+  ["landing", landing],
 ] as const) {
-  assert.ok(/primaryButtonClass/.test(src), `${name} uses the shared primary button`);
+  assert.ok(
+    /primaryButtonClass/.test(src),
+    `${name} uses the shared primary button`,
+  );
 }
 // Session + focus question cards share the same elevated card language.
 assert.ok(
   /elevatedCard/.test(session) && /elevatedCard/.test(focus),
-  'session + focus use the shared question card',
+  "session + focus use the shared question card",
 );
 // Course cards stay scannable + never expose the raw source URL.
-assert.ok(!/sourceUrl/.test(card), 'course card never renders the raw source URL');
+assert.ok(
+  !/sourceUrl/.test(card),
+  "course card never renders the raw source URL",
+);
 
 // --- internal-term scan + microcopy polish across surfaces (Task 20) --------
 // No learner-facing surface hardcodes the internal term as rendered text.
 for (const [name, src] of [
-  ['session', session],
-  ['flashcards', flashcardsPage],
-  ['course', course],
-  ['home', home],
+  ["session", session],
+  ["flashcards", flashcardsPage],
+  ["course", course],
+  ["home", home],
+  ["landing", landing],
+  ["preview", preview],
 ] as const) {
-  assert.ok(!/\bchunk\b/i.test(src), `${name} has no hardcoded "chunk" wording`);
+  assert.ok(
+    !/\bchunk\b/i.test(src),
+    `${name} has no hardcoded "chunk" wording`,
+  );
 }
-// "Behind" reframed to a non-scolding status via the shared helper.
-assert.ok(/scheduleStatusLabel\(/.test(home) && /scheduleStatusLabel\(/.test(course), 'deadline status uses scheduleStatusLabel');
-assert.ok(!/'Behind'/.test(home) && !/'Behind'/.test(course), 'no scolding "Behind" literal remains');
-// The plan reads as "N practice items", not "N to practice".
-assert.ok(!/to practice</.test(home), 'home plan no longer says "N to practice"');
 
-console.log('consolidation.test.ts OK');
+// --- broader internal-term scan across every signed-out + signed-in surface
+// (Task 21) — covers the full banned list, not just "chunk".
+for (const [name, src] of [
+  ["landing", landing],
+  ["preview", preview],
+  ["home", home],
+  ["session", session],
+  ["course", course],
+  ["flashcards", flashcardsPage],
+  ["signIn", signIn],
+] as const) {
+  for (const bad of [
+    "adaptive AI course",
+    "generator dashboard",
+    "planner mechanics",
+  ]) {
+    assert.ok(!src.includes(bad), `${name} leaks internal wording: "${bad}"`);
+  }
+}
+// "Behind" reframed to a non-scolding status via the shared helper. The course
+// page still calls scheduleStatusLabel directly; home derives it via the safer
+// deadlineView() wrapper (handles missing/invalid dates + "0 days left").
+assert.ok(
+  /scheduleStatusLabel\(/.test(course),
+  "course page deadline status uses scheduleStatusLabel",
+);
+assert.ok(
+  /deadlineView\(/.test(home),
+  "home deadline status uses the safe deadlineView() wrapper",
+);
+assert.ok(
+  !/'Behind'/.test(home) && !/'Behind'/.test(course),
+  'no scolding "Behind" literal remains',
+);
+// The plan reads as "N practice items", not "N to practice".
+assert.ok(
+  !/to practice</.test(home),
+  'home plan no longer says "N to practice"',
+);
+
+// --- pitch-safe dashboard: curated grid + calm copy (Task 23) ---------------
+// Failed imports are partitioned out of the main grid into a separate,
+// collapsed "needs attention" section — never mixed into "Your courses".
+assert.ok(
+  /partitionCoursesForDashboard\(/.test(home),
+  "home partitions failed imports out of the main grid",
+);
+assert.ok(
+  /ATTENTION_SECTION_LABEL/.test(home),
+  'home shows the calm "Imports that need attention" section',
+);
+assert.ok(
+  /<details>/.test(home),
+  "the attention section is a collapsed disclosure, not always-open",
+);
+// The main grid is capped with a "Show more" control — never silently hides data.
+assert.ok(
+  /visibleCourses\(/.test(home),
+  "the main grid is capped to a reasonable first screen",
+);
+assert.ok(
+  /showMoreCoursesLabel\(/.test(home),
+  'a "Show more" control reveals the rest',
+);
+
+// Calm failed-import copy: never the old alarming phrase, anywhere.
+for (const [name, src] of [
+  ["home", home],
+  ["card", card],
+] as const) {
+  assert.ok(
+    !/Course generation failed/i.test(src),
+    `${name} no longer says "Course generation failed"`,
+  );
+}
+assert.ok(
+  /importFailureMessage\(/.test(card),
+  "failed-card body text is remapped to calm copy",
+);
+
+// Deadline copy never shows the "0 days left" oddity — Due-today or hidden.
+assert.ok(
+  !/0 days left/i.test(home),
+  'home never renders the raw "0 days left" oddity',
+);
+
+// A coach-like "Next", not "Next task" — and chapter Detail toggles aside,
+// "tasks" is internal state, not learner-facing copy.
+assert.ok(
+  !/'Next task'/.test(session),
+  'session button reads "Next", not "Next task"',
+);
+
+// No raw/internal backend error text reaches the learner: every {error} render
+// site is wrapped in the safeErrorMessage() sanitizer.
+for (const [name, file] of [
+  ["home", "app/page.tsx"],
+  ["session", "app/session/page.tsx"],
+  ["flashcards", "app/flashcards/page.tsx"],
+  ["focus", "app/courses/[courseId]/focus/[concept]/page.tsx"],
+  ["course", "app/courses/[courseId]/page.tsx"],
+] as const) {
+  const src = read(file);
+  assert.ok(
+    /safeErrorMessage\(/.test(src),
+    `${name} sanitizes rendered error text`,
+  );
+  assert.ok(
+    !/\{error\}/.test(src),
+    `${name} never renders the raw {error} value directly`,
+  );
+}
+// No literal JSON.stringify/INTERNAL_ERROR/raw backend formats in any visible page.
+for (const [name, src] of [
+  ["home", home],
+  ["session", session],
+  ["course", course],
+  ["flashcards", flashcardsPage],
+  ["focus", focus],
+  ["landing", landing],
+] as const) {
+  assert.ok(
+    !/JSON\.stringify\(error/.test(src),
+    `${name} never JSON.stringify()s an error for display`,
+  );
+  assert.ok(
+    !/INTERNAL_ERROR/.test(src),
+    `${name} never hardcodes INTERNAL_ERROR`,
+  );
+}
+
+// --- interview-prep wedge: demo-first funnel (Task 24) ----------------------
+const demo = read("app/demo/page.tsx");
+const demoCourses = read("lib/demoCourses.ts");
+
+// '/demo' and the legal pages are public in the Clerk middleware; everything
+// else stays protected.
+assert.ok(/["']\/demo\(\.\*\)["']/.test(proxySrc), "/demo is a public route");
+assert.ok(
+  /["']\/privacy["']/.test(proxySrc) && /["']\/terms["']/.test(proxySrc),
+  "legal pages are public",
+);
+assert.ok(
+  /auth\.protect\(\)/.test(proxySrc),
+  "protected routes still call auth.protect()",
+);
+
+// The landing funnels into the demo before signup: nav CTA, hero CTA, and the
+// clickable product preview all point at /demo; a sign-in path still exists.
+assert.ok(
+  (landing.match(/href="\/demo"/g) ?? []).length >= 3,
+  "landing CTAs lead with the demo",
+);
+assert.ok(
+  (landing.match(/href="\/sign-in"/g) ?? []).length >= 2,
+  "a signup path still exists",
+);
+assert.ok(
+  /href="\/demo"[\s\S]{0,200}<ProductPreview/.test(landing),
+  "the hero product preview is wrapped in a link to the playable demo",
+);
+// Credibility sections are wired.
+assert.ok(
+  /LANDING_PRICING_TITLE/.test(landing),
+  "landing renders the pricing section",
+);
+assert.ok(/LANDING_FAQ\b/.test(landing), "landing renders the FAQ");
+assert.ok(
+  /LANDING_FOOTER_LINKS/.test(landing),
+  "landing renders the footer legal links",
+);
+
+// The demo is a real playable slice: shared MCQ + rating + flashcard components,
+// original content, mistake-based summary, and a signup CTA only at the end.
+assert.ok(
+  /McqChoices/.test(demo) &&
+    /RatingButtons/.test(demo) &&
+    /FlashcardBack/.test(demo),
+  "demo reuses the real learning components",
+);
+assert.ok(
+  /DEMO_COURSE/.test(demo) && /PREBUILT_CATALOG/.test(demo),
+  "demo renders the seeded course + catalog",
+);
+assert.ok(/mixUps/.test(demo), "demo surfaces the mistake-based summary");
+assert.ok(/href="\/sign-in"/.test(demo), "demo closes with a signup path");
+// Demo content is original + clean: answers are real choices, no internal terms.
+assert.ok(
+  !/\bchunk\b/i.test(demo) && !/\bchunk\b/i.test(demoCourses),
+  "demo has no internal wording",
+);
+
+// Session data-quality upgrades: honest uncertainty + recall-before-reveal.
+assert.ok(/allowNotSure/.test(session), 'session MCQs offer "I\'m not sure"');
+assert.ok(
+  /Try to recall it first/.test(session) &&
+    /Try to recall it first/.test(flashcardsPage),
+  "flashcards prompt recall before reveal",
+);
+// Grading still requires reveal first: the rating control renders only in the
+// revealed (back) branch.
+assert.ok(
+  /\{!back \?/.test(session) && /\{!back \?/.test(flashcardsPage),
+  "rating stays gated behind reveal",
+);
+
+// Traction instrumentation is wired (session start/complete + email click).
+assert.ok(
+  /review_session_started/.test(session),
+  "session tracks review_session_started",
+);
+assert.ok(
+  /recordSessionCompleted\(/.test(session),
+  "session records completion milestones",
+);
+assert.ok(
+  /review_email_clicked/.test(session),
+  "session attributes email deep-link clicks",
+);
+assert.ok(
+  /track\(["']demo_started["']\)/.test(demo),
+  "demo tracks demo_started",
+);
+
+console.log("consolidation.test.ts OK");

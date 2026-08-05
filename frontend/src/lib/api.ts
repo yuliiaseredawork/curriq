@@ -4,12 +4,16 @@ type GetToken = () => Promise<string | null>;
 
 // A blocked-duplicate (409) carries the existing course so the UI can link to it.
 export class DuplicateSourceError extends Error {
-  code = 'DUPLICATE_SOURCE' as const;
+  code = "DUPLICATE_SOURCE" as const;
   existingCourseId?: string;
   existingTitle?: string;
-  constructor(message: string, existingCourseId?: string, existingTitle?: string) {
+  constructor(
+    message: string,
+    existingCourseId?: string,
+    existingTitle?: string,
+  ) {
     super(message);
-    this.name = 'DuplicateSourceError';
+    this.name = "DuplicateSourceError";
     this.existingCourseId = existingCourseId;
     this.existingTitle = existingTitle;
   }
@@ -17,10 +21,10 @@ export class DuplicateSourceError extends Error {
 
 async function throwForResponse(res: Response): Promise<never> {
   if (res.status === 409) {
-    const body = await res.json().catch(() => ({} as any));
-    if (body?.error === 'DUPLICATE_SOURCE') {
+    const body = await res.json().catch(() => ({}) as any);
+    if (body?.error === "DUPLICATE_SOURCE") {
       throw new DuplicateSourceError(
-        body.message ?? 'You already have a course from this source.',
+        body.message ?? "You already have a course from this source.",
         body.existingCourseId,
         body.existingTitle,
       );
@@ -32,9 +36,9 @@ async function throwForResponse(res: Response): Promise<never> {
 
 async function authHeaders(getToken: GetToken): Promise<HeadersInit> {
   const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
+  if (!token) throw new Error("Not authenticated");
   return {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
   };
 }
@@ -44,8 +48,10 @@ export function createApiClient(getToken: GetToken) {
 
   return {
     async getCourseStatus(courseId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/status`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/courses/${courseId}/status`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
@@ -53,17 +59,21 @@ export function createApiClient(getToken: GetToken) {
     // Optional targetDate (ISO) sets a mastery deadline.
     async createCourse(sourceUrl: string, targetDate?: string) {
       const res = await fetch(`${API_URL}/courses`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
-        body: JSON.stringify(targetDate ? { sourceUrl, targetDate } : { sourceUrl }),
+        body: JSON.stringify(
+          targetDate ? { sourceUrl, targetDate } : { sourceUrl },
+        ),
       });
       if (!res.ok) await throwForResponse(res);
       return res.json();
     },
 
     async getReviewsToday() {
-      const res = await fetch(`${API_URL}/reviews/today`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/reviews/today`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
@@ -71,17 +81,19 @@ export function createApiClient(getToken: GetToken) {
     // chapterId narrows it to a single chapter's practice questions.
     async getSessionToday(courseId?: string, chapterId?: string) {
       const params = new URLSearchParams();
-      if (courseId) params.set('courseId', courseId);
-      if (courseId && chapterId) params.set('chapterId', chapterId);
-      const qs = params.toString() ? `?${params.toString()}` : '';
-      const res = await fetch(`${API_URL}/session/today${qs}`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (courseId) params.set("courseId", courseId);
+      if (courseId && chapterId) params.set("chapterId", chapterId);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`${API_URL}/session/today${qs}`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async nextReview(courseId?: string) {
       const res = await fetch(`${API_URL}/reviews/next`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify(courseId ? { courseId } : {}),
       });
@@ -90,182 +102,208 @@ export function createApiClient(getToken: GetToken) {
 
     async answerReview(reviewId: string, answer: string) {
       const res = await fetch(`${API_URL}/reviews/answer`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify({ reviewId, answer }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async getFlashcardsDue(courseId?: string) {
-      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
-      const res = await fetch(`${API_URL}/flashcards/due${qs}`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : "";
+      const res = await fetch(`${API_URL}/flashcards/due${qs}`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async nextFlashcard(courseId?: string) {
       const res = await fetch(`${API_URL}/flashcards/next`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify(courseId ? { courseId } : {}),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async revealFlashcard(cardId: string, courseId: string) {
-      const res = await fetch(`${API_URL}/flashcards/${encodeURIComponent(cardId)}/reveal`, {
-        method: 'POST',
-        headers: await h(),
-        body: JSON.stringify({ courseId }),
-      });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(
+        `${API_URL}/flashcards/${encodeURIComponent(cardId)}/reveal`,
+        {
+          method: "POST",
+          headers: await h(),
+          body: JSON.stringify({ courseId }),
+        },
+      );
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async rateFlashcard(cardId: string, courseId: string, rating: string) {
-      const res = await fetch(`${API_URL}/flashcards/${encodeURIComponent(cardId)}/rate`, {
-        method: 'POST',
-        headers: await h(),
-        body: JSON.stringify({ courseId, rating }),
-      });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(
+        `${API_URL}/flashcards/${encodeURIComponent(cardId)}/rate`,
+        {
+          method: "POST",
+          headers: await h(),
+          body: JSON.stringify({ courseId, rating }),
+        },
+      );
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async getRetention(courseId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/retention`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/courses/${courseId}/retention`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async generateOutline(courseId: string) {
       const res = await fetch(`${API_URL}/outline`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify({ courseId, limit: 5 }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async getCourse(courseId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/courses/${courseId}`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async generateQuiz(courseId: string, chapterId: string) {
       const res = await fetch(`${API_URL}/quizzes`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify({ courseId, chapterId, limit: 10 }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async getQuiz(courseId: string, chapterId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/quizzes/${chapterId}`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(
+        `${API_URL}/courses/${courseId}/quizzes/${chapterId}`,
+        { headers: await h() },
+      );
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
-    async getNextQuestion(input: { userId: string; courseId: string; chapterId: string }) {
+    async getNextQuestion(input: { courseId: string; chapterId: string }) {
       const res = await fetch(`${API_URL}/study/next`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify(input),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async submitAnswer(input: {
-      userId: string;
       courseId: string;
       chapterId: string;
       questionId: string;
       userAnswer: string;
     }) {
       const res = await fetch(`${API_URL}/study/answer`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify(input),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
-      return res.json();
-    },
-
-    async processCourse(courseId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/process`, {
-        method: 'POST',
-        headers: await h(),
-      });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     // Re-run generation for a FAILED course (same course id, no duplicate).
     async retryCourse(courseId: string) {
       const res = await fetch(`${API_URL}/courses/${courseId}/retry`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async listCourses() {
       const res = await fetch(`${API_URL}/courses`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
-    async requestPdfUploadUrl(fileName: string, contentType = 'application/pdf') {
+    async requestPdfUploadUrl(
+      fileName: string,
+      contentType = "application/pdf",
+    ) {
       const res = await fetch(`${API_URL}/courses/pdf/upload-url`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
         body: JSON.stringify({ fileName, contentType }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
-    // Direct PUT to the presigned S3 URL (no app auth header).
-    async uploadFileToPresignedUrl(uploadUrl: string, file: File) {
-      const res = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/pdf' },
-        body: file,
-      });
+    // Browser upload using a policy-signed POST. The S3 policy enforces the
+    // MIME type and maximum byte size before accepting any object.
+    async uploadFileToPresignedPost(
+      upload: { url: string; fields: Record<string, string> },
+      file: File,
+    ) {
+      const form = new FormData();
+      for (const [key, value] of Object.entries(upload.fields))
+        form.append(key, value);
+      form.append("file", file);
+      const res = await fetch(upload.url, { method: "POST", body: form });
       if (!res.ok) throw new Error(`Upload failed: HTTP ${res.status}`);
     },
 
     async completePdfCourse(courseId: string, fileName: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/pdf/complete`, {
-        method: 'POST',
-        headers: await h(),
-        body: JSON.stringify({ fileName }),
-      });
-      if (!res.ok) await throwForResponse(res);
-      return res.json();
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const res = await fetch(`${API_URL}/courses/${courseId}/pdf/complete`, {
+          method: "POST",
+          headers: await h(),
+          body: JSON.stringify({ fileName }),
+        });
+        if (res.status === 425) {
+          const retrySeconds = Number(res.headers.get("retry-after") ?? 5);
+          await new Promise((resolve) =>
+            setTimeout(resolve, retrySeconds * 1000),
+          );
+          continue;
+        }
+        if (!res.ok) await throwForResponse(res);
+        return res.json();
+      }
+      throw new Error(
+        "The security scan is taking longer than expected. Please try again shortly.",
+      );
     },
 
     async getFocusAreas(courseId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/focus-areas`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/courses/${courseId}/focus-areas`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async startFocusSession(courseId: string, conceptSlug: string) {
       const res = await fetch(
         `${API_URL}/courses/${courseId}/focus-areas/${encodeURIComponent(conceptSlug)}/session`,
-        { method: 'POST', headers: await h() },
+        { method: "POST", headers: await h() },
       );
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return { status: res.status, body: await res.json() };
     },
 
@@ -276,42 +314,42 @@ export function createApiClient(getToken: GetToken) {
     ) {
       const res = await fetch(
         `${API_URL}/courses/${courseId}/focus-areas/${encodeURIComponent(conceptSlug)}/answer`,
-        { method: 'POST', headers: await h(), body: JSON.stringify(input) },
+        { method: "POST", headers: await h(), body: JSON.stringify(input) },
       );
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async getQuizStatus(courseId: string) {
-      const res = await fetch(`${API_URL}/courses/${courseId}/quiz-status`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/courses/${courseId}/quiz-status`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async retryChapterQuiz(courseId: string, chapterId: string) {
       const res = await fetch(
         `${API_URL}/courses/${courseId}/chapters/${chapterId}/quiz/retry`,
-        { method: 'POST', headers: await h() },
+        { method: "POST", headers: await h() },
       );
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
-    async getCourseProgress(courseId: string, userId: string) {
-      const res = await fetch(
-        `${API_URL}/courses/${courseId}/progress?userId=${encodeURIComponent(userId)}`,
-        { headers: await h() },
-      );
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+    async getCourseProgress(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/progress`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
-    async getResume(courseId: string, userId: string) {
-      const res = await fetch(
-        `${API_URL}/courses/${courseId}/resume?userId=${encodeURIComponent(userId)}`,
-        { headers: await h() },
-      );
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+    async getResume(courseId: string) {
+      const res = await fetch(`${API_URL}/courses/${courseId}/resume`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
@@ -320,23 +358,33 @@ export function createApiClient(getToken: GetToken) {
         `${API_URL}/courses/${courseId}/weak-concepts?userId=${encodeURIComponent(userId)}`,
         { headers: await h() },
       );
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
-    async generatePractice(input: { courseId: string; concept: string; limit?: number }) {
+    async generatePractice(input: {
+      courseId: string;
+      concept: string;
+      limit?: number;
+    }) {
       const res = await fetch(`${API_URL}/practice`, {
-        method: 'POST',
+        method: "POST",
         headers: await h(),
-        body: JSON.stringify({ courseId: input.courseId, concept: input.concept, limit: input.limit ?? 5 }),
+        body: JSON.stringify({
+          courseId: input.courseId,
+          concept: input.concept,
+          limit: input.limit ?? 5,
+        }),
       });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
 
     async getPractice(courseId: string, practiceId: string) {
-      const res = await fetch(`${API_URL}/practice/${courseId}/${practiceId}`, { headers: await h() });
-      if (!res.ok) throw new Error(await res.text() || `HTTP ${res.status}`);
+      const res = await fetch(`${API_URL}/practice/${courseId}/${practiceId}`, {
+        headers: await h(),
+      });
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
       return res.json();
     },
   };

@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 const FeedbackSchema = z.object({
   correct: z.boolean(),
@@ -9,10 +9,6 @@ const FeedbackSchema = z.object({
 });
 
 export type Feedback = z.infer<typeof FeedbackSchema>;
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
 
 const SYSTEM = `
 You are an educational tutor.
@@ -27,7 +23,7 @@ Be encouraging, concise, and specific.
 
 export async function evaluateAnswer(input: {
   question: string;
-  questionType: 'mcq' | 'short';
+  questionType: "mcq" | "short";
   choices?: string[];
   correctAnswer: string;
   userAnswer: string;
@@ -48,7 +44,7 @@ ${input.questionType}
 </question_type>
 
 <choices>
-${input.choices?.map((c) => `- ${c}`).join('\n') ?? ''}
+${input.choices?.map((c) => `- ${c}`).join("\n") ?? ""}
 </choices>
 
 <correct_answer>
@@ -64,7 +60,7 @@ ${input.sourceQuote}
 </source_quote>
 
 <concept_tags>
-${input.conceptTags.join(', ')}
+${input.conceptTags.join(", ")}
 </concept_tags>
 
 <rules>
@@ -88,21 +84,20 @@ ${input.conceptTags.join(', ')}
 `;
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 1200,
       temperature: 0.1,
       system: SYSTEM,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: "user", content: prompt }],
     });
 
-    const text =
-      res.content[0]?.type === 'text'
-        ? res.content[0].text
-        : '';
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
 
-    const jsonStart = text.indexOf('{');
-    const jsonEnd = text.lastIndexOf('}');
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
 
     if (jsonStart === -1 || jsonEnd === -1) continue;
 
@@ -115,5 +110,5 @@ ${input.conceptTags.join(', ')}
     }
   }
 
-  throw new Error('Failed to generate valid feedback');
+  throw new Error("Failed to generate valid feedback");
 }

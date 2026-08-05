@@ -1,15 +1,15 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 const PracticeQuestionSchema = z.object({
   id: z.string(),
-  type: z.enum(['mcq', 'short']),
+  type: z.enum(["mcq", "short"]),
   question: z.string(),
   choices: z.array(z.string()).optional(),
   answer: z.string(),
   source_chunk_id: z.string(),
   source_quote: z.string(),
-  difficulty: z.enum(['easy', 'medium', 'hard']),
+  difficulty: z.enum(["easy", "medium", "hard"]),
   concept_tags: z.array(z.string()).min(1),
 });
 
@@ -21,10 +21,6 @@ const PracticeSchema = z.object({
 });
 
 export type Practice = z.infer<typeof PracticeSchema>;
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
 
 const SYSTEM = `
 You are an expert tutor creating targeted practice.
@@ -53,7 +49,7 @@ function buildPrompt(input: {
 ${c.text}
 </chunk>`,
     )
-    .join('\n');
+    .join("\n");
 
   return `
 <task>
@@ -106,26 +102,25 @@ export async function generatePractice(input: {
   }>;
 }): Promise<Practice> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 3000,
       temperature: 0.2,
       system: SYSTEM,
       messages: [
         {
-          role: 'user',
+          role: "user",
           content: buildPrompt(input),
         },
       ],
     });
 
-    const text =
-      res.content[0]?.type === 'text'
-        ? res.content[0].text
-        : '';
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
 
-    const jsonStart = text.indexOf('{');
-    const jsonEnd = text.lastIndexOf('}');
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
 
     if (jsonStart === -1 || jsonEnd === -1) continue;
 
@@ -138,5 +133,5 @@ export async function generatePractice(input: {
     }
   }
 
-  throw new Error('Failed to generate valid practice');
+  throw new Error("Failed to generate valid practice");
 }

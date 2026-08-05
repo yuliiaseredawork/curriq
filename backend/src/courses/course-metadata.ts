@@ -2,25 +2,21 @@ import {
   getCourseMetadata,
   getCourseMetadataForUser,
   listCourses,
+  listStuckCourses,
   updateCourseStatus,
   transitionCourseStatus,
   findCourseBySourceKey,
   upsertCourse,
   runMigrations,
   type SourceType,
-} from '../storage/courses-repository';
+} from "../storage/courses-repository";
 
 type CourseStatus =
-  | 'CREATED'
-  | 'INGESTING'
-  | 'PROCESSING'
-  | 'OUTLINING'
-  | 'READY'
-  | 'FAILED';
+  "CREATED" | "INGESTING" | "PROCESSING" | "OUTLINING" | "READY" | "FAILED";
 
 type Event =
   | {
-      action: 'upsert';
+      action: "upsert";
       courseId: string;
       userId: string;
       title: string;
@@ -34,69 +30,70 @@ type Event =
       sourceFileName?: string | null;
       sourceKey?: string | null;
       targetDate?: string | null;
-  }
-  | { action: 'migrate' }
+    }
+  | { action: "migrate" }
   | {
-      action: 'updateStatus';
+      action: "updateStatus";
       courseId: string;
       status: CourseStatus;
       errorMessage?: string | null;
     }
   | {
-      action: 'transitionStatus';
+      action: "transitionStatus";
       courseId: string;
       fromStatus: CourseStatus;
       toStatus: CourseStatus;
       errorMessage?: string | null;
     }
   | {
-      action: 'findBySourceKey';
+      action: "findBySourceKey";
       userId: string;
       sourceKey: string;
     }
   | {
-      action: 'list';
+      action: "list";
       userId: string;
     }
   | {
-      action: 'get';
+      action: "get";
       courseId: string;
     }
   | {
-      action: 'getForUser';
+      action: "getForUser";
       courseId: string;
       userId: string;
-    };
+    }
+  | { action: "listStuck"; olderThanMinutes: number };
 
 export const handler = async (event: Event) => {
-  if (event.action === 'migrate') {
+  if (event.action === "migrate") {
     await runMigrations();
-    return { status: 'OK', migrated: true };
+    return { status: "OK", migrated: true };
   }
 
-  if (event.action === 'upsert') {
+  if (event.action === "upsert") {
     await upsertCourse(event);
 
     return {
-      status: 'OK',
+      status: "OK",
       courseId: event.courseId,
     };
   }
 
-  if (event.action === 'updateStatus') {
+  if (event.action === "updateStatus") {
     await updateCourseStatus({
       courseId: event.courseId,
       status: event.status,
       errorMessage: event.errorMessage ?? null,
     });
-    
+
     return {
-      status: 'OK',
+      status: "OK",
       courseId: event.courseId,
     };
   }
 
-  if (event.action === 'transitionStatus') {
+  if (event.action === "transitionStatus") {
     const transitioned = await transitionCourseStatus({
       courseId: event.courseId,
       fromStatus: event.fromStatus,
@@ -105,13 +102,13 @@ export const handler = async (event: Event) => {
     });
 
     return {
-      status: 'OK',
+      status: "OK",
       courseId: event.courseId,
       transitioned,
     };
   }
 
-  if (event.action === 'findBySourceKey') {
+  if (event.action === "findBySourceKey") {
     return {
       course: await findCourseBySourceKey({
         userId: event.userId,
@@ -120,19 +117,19 @@ export const handler = async (event: Event) => {
     };
   }
 
-  if (event.action === 'list') {
+  if (event.action === "list") {
     return {
       courses: await listCourses(event.userId),
     };
   }
 
-  if (event.action === 'get') {
+  if (event.action === "get") {
     return {
       course: await getCourseMetadata(event.courseId),
     };
   }
 
-  if (event.action === 'getForUser') {
+  if (event.action === "getForUser") {
     return {
       course: await getCourseMetadataForUser({
         courseId: event.courseId,
@@ -141,5 +138,9 @@ export const handler = async (event: Event) => {
     };
   }
 
-  throw new Error('Unsupported action');
+  if (event.action === "listStuck") {
+    return { courses: await listStuckCourses(event.olderThanMinutes) };
+  }
+
+  throw new Error("Unsupported action");
 };

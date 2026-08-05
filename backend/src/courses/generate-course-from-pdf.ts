@@ -16,34 +16,36 @@ import {
   LambdaClient,
   InvokeCommand,
   InvocationType,
-} from '@aws-sdk/client-lambda';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import OpenAI from 'openai';
+} from "@aws-sdk/client-lambda";
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
-import { saveOutline } from '../storage/course-artifacts';
-import { generateOutlineFromChunks } from '../agents/outliner';
-import { callCourseMetadata } from './course-metadata-client';
-import { toUserSafeReason } from './failure-reason';
-
-// pdf-parse has no types for the /lib subpath; bundled by esbuild for Lambda.
-// Using the lib entry avoids the package's debug-mode test-file read.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (
-  data: Buffer,
-  opts?: any,
-) => Promise<any>;
+import { loadOutline, saveOutline } from "../storage/course-artifacts";
+import { generateOutlineFromChunks } from "../agents/outliner";
+import { callCourseMetadata } from "./course-metadata-client";
+import { toUserSafeReason } from "./failure-reason";
+import { getOpenAiClient } from "../config/provider-secrets";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import { runIdempotentStage } from "../jobs/stage-idempotency";
 
 const s3 = new S3Client({});
 const lambda = new LambdaClient({});
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 // Synthetic source id for PDF chunks in the shared public.chunks table.
-const PDF_SOURCE_ID = 'pdf';
+const PDF_SOURCE_ID = "pdf";
 const MAX_CHUNK_CHARS = 1600;
+const MAX_PDF_BYTES = Number(process.env.MAX_PDF_BYTES ?? 20 * 1024 * 1024);
+const MAX_PDF_PAGES = Number(process.env.MAX_PDF_PAGES ?? 300);
+const MAX_PDF_TEXT_CHARS = Number(process.env.MAX_PDF_TEXT_CHARS ?? 2_000_000);
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
   return res.data[0].embedding;
@@ -56,7 +58,7 @@ async function invokeJson(functionName: string, payload: unknown) {
       Payload: Buffer.from(JSON.stringify(payload)),
     }),
   );
-  const text = res.Payload ? new TextDecoder().decode(res.Payload) : '';
+  const text = res.Payload ? new TextDecoder().decode(res.Payload) : "";
   const parsed = text ? JSON.parse(text) : null;
   if (res.FunctionError) {
     throw new Error(`${functionName} failed: ${res.FunctionError} ${text}`);
@@ -83,7 +85,10 @@ async function fanOutChapterQuizzes(
 ) {
   const fnName = process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME;
   if (!fnName) {
-    console.warn('[generate-course-from-pdf] GENERATE_CHAPTER_QUIZ_FUNCTION_NAME not set; skipping fan-out', { courseId });
+    console.warn(
+      "[generate-course-from-pdf] GENERATE_CHAPTER_QUIZ_FUNCTION_NAME not set; skipping fan-out",
+      { courseId },
+    );
     return;
   }
   for (const chapter of chapters) {
@@ -92,12 +97,17 @@ async function fanOutChapterQuizzes(
         new InvokeCommand({
           FunctionName: fnName,
           InvocationType: InvocationType.Event,
-          Payload: Buffer.from(JSON.stringify({ courseId, chapterId: chapter.id })),
+          Payload: Buffer.from(
+            JSON.stringify({ courseId, chapterId: chapter.id }),
+          ),
         }),
       );
-      console.log('[generate-course-from-pdf] quiz generation queued', { courseId, chapterId: chapter.id });
+      console.log("[generate-course-from-pdf] quiz generation queued", {
+        courseId,
+        chapterId: chapter.id,
+      });
     } catch (e: any) {
-      console.error('[generate-course-from-pdf] failed to queue chapter quiz', {
+      console.error("[generate-course-from-pdf] failed to queue chapter quiz", {
         courseId,
         chapterId: chapter.id,
         error: String(e?.message ?? e),
@@ -117,8 +127,8 @@ async function extractPages(buffer: Buffer): Promise<string[]> {
       });
       const text = tc.items
         .map((i: any) => i.str)
-        .join(' ')
-        .replace(/\s+/g, ' ')
+        .join(" ")
+        .replace(/\s+/g, " ")
         .trim();
       pages.push(text);
       return text;
@@ -139,7 +149,7 @@ function chunkPages(pages: string[]): PdfChunk[] {
   const units: { text: string; page: number }[] = [];
   pages.forEach((raw, idx) => {
     const page = idx + 1;
-    const text = (raw || '').replace(/\s+/g, ' ').trim();
+    const text = (raw || "").replace(/\s+/g, " ").trim();
     if (!text) return; // skip empty / image-only pages
     if (text.length <= MAX_CHUNK_CHARS) {
       units.push({ text, page });
@@ -151,7 +161,7 @@ function chunkPages(pages: string[]): PdfChunk[] {
   });
 
   const chunks: PdfChunk[] = [];
-  let acc = '';
+  let acc = "";
   let pageStart = 0;
   let pageEnd = 0;
   let chunkIndex = 0;
@@ -171,7 +181,8 @@ function chunkPages(pages: string[]): PdfChunk[] {
       pageEnd = u.page;
     }
   }
-  if (acc) chunks.push({ text: acc, pageStart, pageEnd, chunkIndex: chunkIndex++ });
+  if (acc)
+    chunks.push({ text: acc, pageStart, pageEnd, chunkIndex: chunkIndex++ });
   return chunks;
 }
 
@@ -182,137 +193,183 @@ export const handler = async (event: {
   fileName: string;
 }) => {
   const { courseId, userId, fileKey, fileName } = event;
-  console.log('[generate-course-from-pdf] start', { courseId, userId, fileName });
+  console.log("[generate-course-from-pdf] start", { courseId });
 
   try {
-    await callCourseMetadata({ action: 'updateStatus', courseId, status: 'INGESTING' });
-
-    // 1. Read PDF from the raw bucket.
-    const obj = await s3.send(
-      new GetObjectCommand({ Bucket: process.env.RAW_BUCKET!, Key: fileKey }),
-    );
-    const buffer = Buffer.from(await obj.Body!.transformToByteArray());
-
-    // 2. Extract text per page.
-    const pages = await extractPages(buffer);
-    const pdfChunks = chunkPages(pages);
-    console.log('[generate-course-from-pdf] extracted', {
+    await callCourseMetadata({
+      action: "updateStatus",
       courseId,
-      pageCount: pages.length,
-      chunkCount: pdfChunks.length,
+      status: "INGESTING",
     });
 
-    if (!pdfChunks.length) {
-      throw new Error(
-        'This PDF appears to contain no extractable text. OCR is not supported yet.',
+    await runIdempotentStage(courseId, "PDF_EXTRACT_AND_EMBED", async () => {
+      // Read and independently validate the PDF again in the worker.
+      const obj = await s3.send(
+        new GetObjectCommand({ Bucket: process.env.RAW_BUCKET!, Key: fileKey }),
       );
-    }
+      const buffer = Buffer.from(await obj.Body!.transformToByteArray());
+      if (
+        buffer.length > MAX_PDF_BYTES ||
+        buffer.subarray(0, 5).toString("ascii") !== "%PDF-"
+      ) {
+        throw new Error(
+          "The uploaded file is not a valid PDF within the size limit.",
+        );
+      }
 
-    await callCourseMetadata({ action: 'updateStatus', courseId, status: 'PROCESSING' });
+      const pages = await extractPages(buffer);
+      if (pages.length > MAX_PDF_PAGES) {
+        throw new Error(`PDF exceeds the ${MAX_PDF_PAGES}-page limit.`);
+      }
+      const extractedChars = pages.reduce(
+        (total, page) => total + page.length,
+        0,
+      );
+      if (extractedChars > MAX_PDF_TEXT_CHARS) {
+        throw new Error(
+          "PDF contains more extractable text than the processing limit.",
+        );
+      }
+      const pdfChunks = chunkPages(pages);
+      console.log("[generate-course-from-pdf] extracted", {
+        courseId,
+        pageCount: pages.length,
+        chunkCount: pdfChunks.length,
+      });
+      if (!pdfChunks.length) {
+        throw new Error(
+          "This PDF appears to contain no extractable text. OCR is not supported yet.",
+        );
+      }
 
-    // 3. Embed chunks (OpenAI).
-    const embedded = [];
-    for (const ch of pdfChunks) {
-      const embedding = await embed(ch.text);
-      embedded.push({ ...ch, embedding });
-    }
+      await callCourseMetadata({
+        action: "updateStatus",
+        courseId,
+        status: "PROCESSING",
+      });
+      const embedded = [];
+      for (const ch of pdfChunks) {
+        const embedding = await embed(ch.text);
+        embedded.push({ ...ch, embedding });
+      }
 
-    // 4a. Write chunks in the shape ProcessTranscriptFn consumes (start = page).
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.PROCESSED_BUCKET!,
-        Key: `courses/${courseId}/videos/${PDF_SOURCE_ID}/chunks.json`,
-        Body: JSON.stringify({
-          courseId,
-          videoId: PDF_SOURCE_ID,
-          chunks: embedded.map((c) => ({
-            text: c.text,
-            start: c.pageStart,
-            embedding: c.embedding,
-          })),
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: process.env.PROCESSED_BUCKET!,
+          Key: `courses/${courseId}/videos/${PDF_SOURCE_ID}/chunks.json`,
+          Body: JSON.stringify({
+            courseId,
+            videoId: PDF_SOURCE_ID,
+            chunks: embedded.map((c) => ({
+              text: c.text,
+              start: c.pageStart,
+              embedding: c.embedding,
+            })),
+          }),
+          ContentType: "application/json",
         }),
-        ContentType: 'application/json',
-      }),
-    );
+      );
 
-    // 4b. Write rich PDF chunk metadata for future citations.
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: process.env.PROCESSED_BUCKET!,
-        Key: `courses/${courseId}/pdf/chunks.json`,
-        Body: JSON.stringify({
-          courseId,
-          sourceType: 'PDF',
-          fileName,
-          chunks: pdfChunks.map((c) => ({
-            chunkIndex: c.chunkIndex,
-            pageStart: c.pageStart,
-            pageEnd: c.pageEnd,
-            text: c.text,
-          })),
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: process.env.PROCESSED_BUCKET!,
+          Key: `courses/${courseId}/pdf/chunks.json`,
+          Body: JSON.stringify({
+            courseId,
+            sourceType: "PDF",
+            fileName,
+            chunks: pdfChunks.map((c) => ({
+              chunkIndex: c.chunkIndex,
+              pageStart: c.pageStart,
+              pageEnd: c.pageEnd,
+              text: c.text,
+            })),
+          }),
+          ContentType: "application/json",
         }),
-        ContentType: 'application/json',
-      }),
-    );
+      );
+    });
 
     // 5. Insert into pgvector via the in-VPC ProcessTranscriptFn.
-    await invokeJson(process.env.PROCESS_TRANSCRIPT_FUNCTION_NAME!, {
-      courseId,
-      playlistId: PDF_SOURCE_ID,
-      videoId: PDF_SOURCE_ID,
-    });
+    await runIdempotentStage(courseId, "PDF_INDEX", () =>
+      invokeJson(process.env.PROCESS_TRANSCRIPT_FUNCTION_NAME!, {
+        courseId,
+        playlistId: PDF_SOURCE_ID,
+        videoId: PDF_SOURCE_ID,
+      }),
+    );
 
     // 6. Outline from retrieved chunks (reuses the existing outliner).
-    await callCourseMetadata({ action: 'updateStatus', courseId, status: 'OUTLINING' });
-    const search = await searchChunks({
+    await callCourseMetadata({
+      action: "updateStatus",
       courseId,
-      query: 'main topics and concepts in this document',
-      limit: 6,
+      status: "OUTLINING",
     });
-    if (!search.results?.length) {
-      throw new Error('No embedded chunks found after processing.');
-    }
-    const outline = await generateOutlineFromChunks(search.results);
-    await saveOutline(courseId, outline);
-    console.log('[generate-course-from-pdf] outline generated', {
+    const outlineStage = await runIdempotentStage(
       courseId,
-      title: outline.title,
-      chapters: outline.chapters.length,
-    });
+      "GENERATE_OUTLINE",
+      async () => {
+        const search = await searchChunks({
+          courseId,
+          query: "main topics and concepts in this document",
+          limit: 6,
+        });
+        if (!search.results?.length) {
+          throw new Error("No embedded chunks found after processing.");
+        }
+        const generated = await generateOutlineFromChunks(search.results);
+        await saveOutline(courseId, generated);
+        console.log("[generate-course-from-pdf] outline generated", {
+          courseId,
+          title: generated.title,
+          chapters: generated.chapters.length,
+        });
+        return generated;
+      },
+    );
+    const outline = outlineStage.executed
+      ? outlineStage.value
+      : await loadOutline(courseId);
 
     // 7. Mark READY (preserve PDF source metadata).
     await callCourseMetadata({
-      action: 'upsert',
+      action: "upsert",
       courseId,
       userId,
       title: outline.title,
-      status: 'READY',
-      sourceType: 'PDF',
+      status: "READY",
+      sourceType: "PDF",
       sourceFileKey: fileKey,
       sourceFileName: fileName,
     });
-    console.log('[generate-course-from-pdf] status → READY', { courseId });
+    console.log("[generate-course-from-pdf] status → READY", { courseId });
 
     // 8. Background quiz generation per chapter.
     await fanOutChapterQuizzes(courseId, outline.chapters);
 
-    return { courseId, status: 'READY', title: outline.title };
+    return { courseId, status: "READY", title: outline.title };
   } catch (e: any) {
     const rawError = String(e?.message ?? e);
     const errorMessage = toUserSafeReason(e);
-    console.error('[generate-course-from-pdf] FAILED', { courseId, error: rawError });
+    console.error("[generate-course-from-pdf] FAILED", {
+      courseId,
+      error: rawError,
+    });
     try {
       await callCourseMetadata({
-        action: 'updateStatus',
+        action: "updateStatus",
         courseId,
-        status: 'FAILED',
+        status: "FAILED",
         errorMessage,
       });
     } catch (metaErr: any) {
-      console.error('[generate-course-from-pdf] could not update FAILED status', {
-        courseId,
-        metaError: String(metaErr?.message ?? metaErr),
-      });
+      console.error(
+        "[generate-course-from-pdf] could not update FAILED status",
+        {
+          courseId,
+          metaError: String(metaErr?.message ?? metaErr),
+        },
+      );
     }
     throw e;
   }

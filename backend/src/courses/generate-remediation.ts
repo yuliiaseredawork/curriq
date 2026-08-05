@@ -7,30 +7,34 @@
 // canonical mastery records (preserving prior progress), and generates one
 // remediation set per canonical area.
 
-import OpenAI from 'openai';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 
-import { generateRemediation } from '../agents/remediation-writer';
-import { consolidateFocusAreas } from '../agents/focus-consolidator';
-import { generateFlashcards } from '../agents/flashcard-writer';
-import { listCardsForConcept, putCard, newCard } from '../storage/flashcards';
-import { saveRemediationSet, loadRemediationSet } from '../storage/course-artifacts';
+import { generateRemediation } from "../agents/remediation-writer";
+import { consolidateFocusAreas } from "../agents/focus-consolidator";
+import { generateFlashcards } from "../agents/flashcard-writer";
+import { listCardsForConcept, putCard, newCard } from "../storage/flashcards";
+import {
+  saveRemediationSet,
+  loadRemediationSet,
+} from "../storage/course-artifacts";
 import {
   getMastery,
   putMastery,
   listMastery,
   type MasteryRecord,
-} from '../storage/focus-areas';
-import { getCourseMistakes } from '../storage/study-state';
-import { slugifyConcept, INITIAL_SCORE } from './mastery';
-import { dedupeTags, normalizeTag, tagOverlap } from './concept-normalize';
+} from "../storage/focus-areas";
+import { getCourseMistakes } from "../storage/study-state";
+import { slugifyConcept, INITIAL_SCORE } from "./mastery";
+import { dedupeTags, normalizeTag, tagOverlap } from "./concept-normalize";
+import { getOpenAiClient } from "../config/provider-secrets";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const lambda = new LambdaClient({});
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
   return res.data[0].embedding;
@@ -44,7 +48,9 @@ async function searchChunks(courseId: string, query: string, limit: number) {
       Payload: Buffer.from(JSON.stringify({ courseId, embedding, limit })),
     }),
   );
-  const raw = response.Payload ? new TextDecoder().decode(response.Payload) : '';
+  const raw = response.Payload
+    ? new TextDecoder().decode(response.Payload)
+    : "";
   if (response.FunctionError) {
     throw new Error(`SearchChunksFn failed: ${response.FunctionError} ${raw}`);
   }
@@ -64,12 +70,14 @@ export const handler = async (event: {
   force?: boolean;
 }) => {
   const { courseId, userId } = event;
-  console.log('[consolidate-focus] start', { courseId, userId });
+  console.log("[consolidate-focus] start", { courseId });
 
   const mistakes = await getCourseMistakes({ userId, courseId });
-  const rawTags = mistakes.flatMap((m: any) => (m.conceptTags as string[]) ?? []);
+  const rawTags = mistakes.flatMap(
+    (m: any) => (m.conceptTags as string[]) ?? [],
+  );
   if (!rawTags.length) {
-    console.log('[consolidate-focus] no mistakes/tags', { courseId, userId });
+    console.log("[consolidate-focus] no mistakes/tags", { courseId });
     return { consolidated: 0 };
   }
 
@@ -81,13 +89,15 @@ export const handler = async (event: {
     .slice(0, 8);
 
   const areas = await consolidateFocusAreas({ concepts: deduped, sampleGaps });
-  console.log('[consolidate-focus] areas', {
+  console.log("[consolidate-focus] areas", {
     courseId,
     count: areas.length,
     titles: areas.map((a) => a.title),
   });
 
-  const existing = (await listMastery(userId, courseId)).filter((r) => r.isCanonical);
+  const existing = (await listMastery(userId, courseId)).filter(
+    (r) => r.isCanonical,
+  );
   const used = new Set<string>();
   const now = new Date().toISOString();
 
@@ -96,7 +106,10 @@ export const handler = async (event: {
     // (keeps slug stable + preserves mastery progress across re-consolidations).
     const match = existing
       .filter((e) => !used.has(e.conceptSlug))
-      .map((e) => ({ e, ov: tagOverlap(area.rawConcepts, e.rawConcepts ?? []) }))
+      .map((e) => ({
+        e,
+        ov: tagOverlap(area.rawConcepts, e.rawConcepts ?? []),
+      }))
       .filter((x) => x.ov > 0)
       .sort((a, b) => b.ov - a.ov)[0]?.e;
 
@@ -122,7 +135,7 @@ export const handler = async (event: {
       shortDescription: area.shortDescription,
       whyItMatters: area.whyItMatters,
       rawConcepts: area.rawConcepts,
-      state: prev?.state ?? 'NEEDS_REVIEW',
+      state: prev?.state ?? "NEEDS_REVIEW",
       masteryScore,
       mistakeCount,
       priority: mistakeCount * (100 - masteryScore),
@@ -134,17 +147,21 @@ export const handler = async (event: {
     };
 
     try {
-      const needRemediation = event.force || !(await loadRemediationSet(courseId, slug));
+      const needRemediation =
+        event.force || !(await loadRemediationSet(courseId, slug));
       const existingCards = await listCardsForConcept(userId, courseId, slug);
       const needCards = existingCards.length === 0;
       record.remediationReady = !needRemediation; // already had a set
 
       if (needRemediation || needCards) {
-        const query = [area.title, ...area.rawConcepts].join(', ');
+        const query = [area.title, ...area.rawConcepts].join(", ");
         const search = await searchChunks(courseId, query, 8);
         if (search.results?.length) {
           if (needRemediation) {
-            const set = await generateRemediation({ concept: area.title, chunks: search.results });
+            const set = await generateRemediation({
+              concept: area.title,
+              chunks: search.results,
+            });
             await saveRemediationSet(courseId, slug, set);
             record.remediationReady = true;
           }
@@ -174,7 +191,7 @@ export const handler = async (event: {
                 }),
               );
             }
-            console.log('[consolidate-focus] flashcards generated', {
+            console.log("[consolidate-focus] flashcards generated", {
               courseId,
               slug,
               count: cards.length,
@@ -183,7 +200,7 @@ export const handler = async (event: {
         }
       }
     } catch (e: any) {
-      console.error('[consolidate-focus] remediation/flashcards failed', {
+      console.error("[consolidate-focus] remediation/flashcards failed", {
         courseId,
         slug,
         error: String(e?.message ?? e),

@@ -1,14 +1,12 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
-import { randomUUID } from 'crypto';
-import OpenAI from 'openai';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { Hono } from "hono";
+import { z } from "zod";
+import { randomUUID } from "crypto";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 
-import {
-  loadPractice,
-  savePractice,
-} from '../../storage/course-artifacts';
-import { generatePractice } from '../../agents/practice-writer';
+import { loadPractice, savePractice } from "../../storage/course-artifacts";
+import { generatePractice } from "../../agents/practice-writer";
+import { requireCourseAccess } from "../../auth/course-access";
+import { getOpenAiClient } from "../../config/provider-secrets";
 
 const Input = z.object({
   courseId: z.string(),
@@ -16,15 +14,13 @@ const Input = z.object({
   limit: z.number().int().min(1).max(10).optional(),
 });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 const lambda = new LambdaClient({});
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
 
@@ -51,9 +47,7 @@ async function searchChunks(input: {
     }),
   );
 
-  const payload = JSON.parse(
-    new TextDecoder().decode(response.Payload),
-  );
+  const payload = JSON.parse(new TextDecoder().decode(response.Payload));
 
   if (response.FunctionError) {
     throw new Error(JSON.stringify(payload));
@@ -64,9 +58,10 @@ async function searchChunks(input: {
 
 export const practice = new Hono();
 
-practice.post('/', async (c) => {
+practice.post("/", async (c) => {
   const body = await c.req.json();
   const input = Input.parse(body);
+  await requireCourseAccess(c, input.courseId);
 
   const practiceId = randomUUID();
 
@@ -79,7 +74,7 @@ practice.post('/', async (c) => {
   if (!search.results?.length) {
     return c.json(
       {
-        error: 'NO_CHUNKS_FOUND',
+        error: "NO_CHUNKS_FOUND",
         message: `No relevant chunks found for concept: ${input.concept}`,
       },
       404,
@@ -92,11 +87,7 @@ practice.post('/', async (c) => {
     chunks: search.results,
   });
 
-  const saved = await savePractice(
-    input.courseId,
-    practiceId,
-    generated,
-  );
+  const saved = await savePractice(input.courseId, practiceId, generated);
 
   return c.json({
     courseId: input.courseId,
@@ -107,11 +98,12 @@ practice.post('/', async (c) => {
   });
 });
 
-practice.get('/:courseId/:practiceId', async (c) => {
-  const courseId = c.req.param('courseId');
-  const practiceId = c.req.param('practiceId');
+practice.get("/:courseId/:practiceId", async (c) => {
+  const courseId = c.req.param("courseId");
+  const practiceId = c.req.param("practiceId");
 
   try {
+    await requireCourseAccess(c, courseId);
     const practice = await loadPractice(courseId, practiceId);
 
     return c.json({
@@ -122,7 +114,7 @@ practice.get('/:courseId/:practiceId', async (c) => {
   } catch {
     return c.json(
       {
-        error: 'PRACTICE_NOT_FOUND',
+        error: "PRACTICE_NOT_FOUND",
         message: `No practice found for ${courseId}/${practiceId}`,
       },
       404,

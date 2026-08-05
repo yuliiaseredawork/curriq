@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 // Groups a learner's many raw mistake concepts into a few meaningful,
 // human-readable focus areas (learning objectives), grounded only in the
@@ -17,8 +17,6 @@ const ConsolidationSchema = z.object({
 });
 
 export type ConsolidatedFocusArea = z.infer<typeof FocusAreaSchema>;
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 const SYSTEM = `
 You consolidate a learner's scattered mistake concepts into a few meaningful
@@ -46,15 +44,18 @@ export async function consolidateFocusAreas(input: {
 }): Promise<ConsolidatedFocusArea[]> {
   const conceptList = input.concepts
     .map((c) => `- ${c.tag} (missed ${c.count}x)`)
-    .join('\n');
-  const gaps = (input.sampleGaps ?? []).slice(0, 8).map((g) => `- ${g}`).join('\n');
+    .join("\n");
+  const gaps = (input.sampleGaps ?? [])
+    .slice(0, 8)
+    .map((g) => `- ${g}`)
+    .join("\n");
 
   const prompt = `
 <concepts>
 ${conceptList}
 </concepts>
 
-${gaps ? `<observed_gaps>\n${gaps}\n</observed_gaps>\n` : ''}
+${gaps ? `<observed_gaps>\n${gaps}\n</observed_gaps>\n` : ""}
 Consolidate these into 2-5 focus areas.
 
 Return ONLY:
@@ -73,19 +74,22 @@ Return ONLY:
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 2000,
       temperature: 0.2,
       system: SYSTEM,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: "user", content: prompt }],
     });
-    const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
     if (start === -1 || end === -1) continue;
     try {
-      return ConsolidationSchema.parse(JSON.parse(text.slice(start, end + 1))).focusAreas;
+      return ConsolidationSchema.parse(JSON.parse(text.slice(start, end + 1)))
+        .focusAreas;
     } catch (e) {
       lastError = e;
     }

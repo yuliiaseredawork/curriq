@@ -1,10 +1,11 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
-import OpenAI from 'openai';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { Hono } from "hono";
+import { z } from "zod";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 
-import { loadOutline, saveQuiz } from '../../storage/course-artifacts';
-import { generateQuiz } from '../../agents/quiz-writer';
+import { loadOutline, saveQuiz } from "../../storage/course-artifacts";
+import { generateQuiz } from "../../agents/quiz-writer";
+import { requireCourseAccess } from "../../auth/course-access";
+import { getOpenAiClient } from "../../config/provider-secrets";
 
 const Input = z.object({
   courseId: z.string(),
@@ -12,15 +13,13 @@ const Input = z.object({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 const lambda = new LambdaClient({});
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
 
@@ -52,9 +51,10 @@ async function searchChunks(input: {
 
 export const quizzes = new Hono();
 
-quizzes.post('/', async (c) => {
+quizzes.post("/", async (c) => {
   const body = await c.req.json();
   const input = Input.parse(body);
+  await requireCourseAccess(c, input.courseId);
 
   const outline = await loadOutline(input.courseId);
 
@@ -65,8 +65,8 @@ quizzes.post('/', async (c) => {
   if (!chapters.length) {
     return c.json(
       {
-        error: 'CHAPTER_NOT_FOUND',
-        message: 'No matching chapter found in outline.',
+        error: "CHAPTER_NOT_FOUND",
+        message: "No matching chapter found in outline.",
       },
       404,
     );
@@ -79,7 +79,7 @@ quizzes.post('/', async (c) => {
       chapter.title,
       chapter.summary,
       ...(chapter.learning_objectives ?? []),
-    ].join('\n');
+    ].join("\n");
 
     const search = await searchChunks({
       courseId: input.courseId,
@@ -90,7 +90,7 @@ quizzes.post('/', async (c) => {
     if (!search.results?.length) {
       results.push({
         chapterId: chapter.id,
-        status: 'NO_CHUNKS_FOUND',
+        status: "NO_CHUNKS_FOUND",
       });
       continue;
     }
@@ -107,7 +107,7 @@ quizzes.post('/', async (c) => {
 
     results.push({
       chapterId: chapter.id,
-      status: 'OK',
+      status: "OK",
       questionCount: quiz.questions.length,
       saved,
       quiz,

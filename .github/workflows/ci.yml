@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_API_URL: https://api.example.invalid
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y3VycmlxLWNpLW9ubHk
+      PROD_APP_URL: https://curriq.app
+      PROVIDER_SECRET_NAME: curriq/ci/providers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Type-check frontend, backend, and infrastructure
+        run: pnpm typecheck
+      - name: Lint frontend, backend, and infrastructure
+        run: pnpm lint
+      - name: Run frontend, backend, and infrastructure tests
+        run: pnpm test
+      - name: Build production frontend and infrastructure
+        run: pnpm build
+      - name: Synthesize all CDK stacks
+        run: pnpm --dir infra synth
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high

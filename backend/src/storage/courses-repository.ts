@@ -1,5 +1,8 @@
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { Client } from 'pg';
+import {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} from "@aws-sdk/client-secrets-manager";
+import { Client } from "pg";
 
 const secrets = new SecretsManagerClient({});
 
@@ -31,14 +34,9 @@ async function createClient() {
 }
 
 type CourseStatus =
-  | 'CREATED'
-  | 'INGESTING'
-  | 'PROCESSING'
-  | 'OUTLINING'
-  | 'READY'
-  | 'FAILED';
+  "CREATED" | "INGESTING" | "PROCESSING" | "OUTLINING" | "READY" | "FAILED";
 
-export type SourceType = 'YOUTUBE_PLAYLIST' | 'YOUTUBE_VIDEO' | 'PDF';
+export type SourceType = "YOUTUBE_PLAYLIST" | "YOUTUBE_VIDEO" | "PDF";
 
 /**
  * Idempotent schema migration for multi-source support. Adds the source_*
@@ -229,7 +227,12 @@ export async function transitionCourseStatus(input: {
       WHERE id = $1
         AND status = $2
       `,
-      [input.courseId, input.fromStatus, input.toStatus, input.errorMessage ?? null],
+      [
+        input.courseId,
+        input.fromStatus,
+        input.toStatus,
+        input.errorMessage ?? null,
+      ],
     );
     return (result.rowCount ?? 0) > 0;
   } finally {
@@ -275,10 +278,42 @@ export async function listCourses(userId: string) {
       updatedAt: r.updated_at,
       errorMessage: r.error_message,
       userId: r.user_id,
-      sourceType: r.source_type ?? 'YOUTUBE_PLAYLIST',
+      sourceType: r.source_type ?? "YOUTUBE_PLAYLIST",
       sourceUrl: r.source_url,
       sourceFileName: r.source_file_name,
       targetDate: r.target_date,
+    }));
+  } finally {
+    await client.end();
+  }
+}
+
+/** Non-terminal courses whose lease has effectively expired. Used only by the
+ * scheduled recovery worker; never exposed through the public API. */
+export async function listStuckCourses(olderThanMinutes: number) {
+  const client = await createClient();
+  try {
+    const result = await client.query(
+      `
+      SELECT id, user_id, status, source_type, source_url, playlist_id,
+             source_file_key, source_file_name
+      FROM public.courses
+      WHERE status IN ('CREATED', 'INGESTING', 'PROCESSING', 'OUTLINING')
+        AND updated_at < now() - ($1 * interval '1 minute')
+      ORDER BY updated_at ASC
+      LIMIT 100
+      `,
+      [olderThanMinutes],
+    );
+    return result.rows.map((row) => ({
+      courseId: row.id,
+      userId: row.user_id,
+      status: row.status as CourseStatus,
+      sourceType: (row.source_type ?? "YOUTUBE_PLAYLIST") as SourceType,
+      sourceUrl: row.source_url,
+      playlistId: row.playlist_id,
+      sourceFileKey: row.source_file_key,
+      sourceFileName: row.source_file_name,
     }));
   } finally {
     await client.end();
@@ -366,7 +401,7 @@ export async function getCourseMetadataForUser(input: {
       playlistId: r.playlist_id,
       status: r.status,
       errorMessage: r.error_message,
-      sourceType: r.source_type ?? 'YOUTUBE_PLAYLIST',
+      sourceType: r.source_type ?? "YOUTUBE_PLAYLIST",
       sourceUrl: r.source_url,
       sourceFileKey: r.source_file_key,
       sourceFileName: r.source_file_name,

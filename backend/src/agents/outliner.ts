@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 // Shape is unchanged from the original (title, chapters[{id, title, summary,
 // learning_objectives, source_video_ids}]). Bounds are tightened conservatively
@@ -13,7 +13,10 @@ export const OutlineSchema = z.object({
         id: z.string(),
         title: z.string().min(1),
         summary: z.string().min(60).max(400),
-        learning_objectives: z.array(z.string().trim().min(8).max(120)).min(2).max(5),
+        learning_objectives: z
+          .array(z.string().trim().min(8).max(120))
+          .min(2)
+          .max(5),
         source_video_ids: z.array(z.string()),
       }),
     )
@@ -22,10 +25,6 @@ export const OutlineSchema = z.object({
 });
 
 export type Outline = z.infer<typeof OutlineSchema>;
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
 
 const SYSTEM = `
 You design focused, source-specific learning paths — not generic course skeletons.
@@ -39,11 +38,13 @@ Do not include explanations outside JSON.
 Use only the provided course chunks.
 `;
 
-export function buildPrompt(chunks: Array<{
-  id: string | number;
-  video_id: string;
-  text: string;
-}>) {
+export function buildPrompt(
+  chunks: Array<{
+    id: string | number;
+    video_id: string;
+    text: string;
+  }>,
+) {
   const context = chunks
     .map((c) => {
       return `
@@ -51,7 +52,7 @@ export function buildPrompt(chunks: Array<{
 ${c.text}
 </chunk>`;
     })
-    .join('\n');
+    .join("\n");
 
   return `
 <task>
@@ -136,16 +137,16 @@ ${context}
 
 // Generic titles the prompt bans; detected here as a soft signal too.
 const GENERIC_TITLES = new Set([
-  'introduction',
-  'intro',
-  'overview',
-  'basics',
-  'getting started',
-  'fundamentals',
-  'advanced topics',
-  'miscellaneous',
-  'conclusion',
-  'summary',
+  "introduction",
+  "intro",
+  "overview",
+  "basics",
+  "getting started",
+  "fundamentals",
+  "advanced topics",
+  "miscellaneous",
+  "conclusion",
+  "summary",
 ]);
 
 // Generic *prefix* templates like "Introduction to X" / "Basics of Y" /
@@ -195,14 +196,14 @@ export function outlineQualityIssues(outline: Outline): string[] {
  */
 export function correctiveFeedback(issues: string[]): string {
   return [
-    'Your previous outline had quality problems. Fix them and regenerate:',
+    "Your previous outline had quality problems. Fix them and regenerate:",
     ...issues.map((i) => `- ${i}`),
-    '',
+    "",
     "Replace generic chapter titles like 'Introduction to X', 'Overview of X', or",
     "'Basics of X' with source-specific concept titles that name the actual topic.",
     'Rewrite meta summaries (e.g. "This chapter covers…") as learner outcomes.',
-    'Make every objective observable, testable, and grounded in the chunks.',
-  ].join('\n');
+    "Make every objective observable, testable, and grounded in the chunks.",
+  ].join("\n");
 }
 
 export async function generateOutlineFromChunks(
@@ -223,21 +224,20 @@ export async function generateOutlineFromChunks(
       ? `${buildPrompt(chunks)}\n\n<corrections>\n${correctiveNote}\n</corrections>`
       : buildPrompt(chunks);
 
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 4096,
       temperature: 0.2,
       system: SYSTEM,
-      messages: [{ role: 'user', content: userContent }],
+      messages: [{ role: "user", content: userContent }],
     });
 
-    const text =
-      res.content[0]?.type === 'text'
-        ? res.content[0].text
-        : '';
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
 
-    const jsonStart = text.indexOf('{');
-    const jsonEnd = text.lastIndexOf('}');
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
 
     if (jsonStart === -1 || jsonEnd === -1) {
       continue;
@@ -245,7 +245,9 @@ export async function generateOutlineFromChunks(
 
     let outline: Outline;
     try {
-      outline = OutlineSchema.parse(JSON.parse(text.slice(jsonStart, jsonEnd + 1)));
+      outline = OutlineSchema.parse(
+        JSON.parse(text.slice(jsonStart, jsonEnd + 1)),
+      );
     } catch {
       // Retry if model returned invalid shape (parse/schema retry, unchanged).
       continue;
@@ -255,7 +257,7 @@ export async function generateOutlineFromChunks(
 
     // First time we see soft issues: regenerate ONCE with corrective feedback.
     if (issues.length && !corrected) {
-      console.warn('[outliner] soft quality issues — one corrective retry', {
+      console.warn("[outliner] soft quality issues — one corrective retry", {
         count: issues.length,
         issues,
       });
@@ -266,10 +268,13 @@ export async function generateOutlineFromChunks(
     }
 
     if (issues.length) {
-      console.warn('[outliner] soft quality issues remain after corrective retry (accepting)', {
-        count: issues.length,
-        issues,
-      });
+      console.warn(
+        "[outliner] soft quality issues remain after corrective retry (accepting)",
+        {
+          count: issues.length,
+          issues,
+        },
+      );
     }
     return outline;
   }
@@ -278,5 +283,5 @@ export async function generateOutlineFromChunks(
   // earlier valid outline rather than failing the course over style.
   if (best) return best;
 
-  throw new Error('Failed to generate valid outline');
+  throw new Error("Failed to generate valid outline");
 }

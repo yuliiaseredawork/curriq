@@ -2,25 +2,29 @@ import {
   LambdaClient,
   InvokeCommand,
   InvocationType,
-} from '@aws-sdk/client-lambda';
-import OpenAI from 'openai';
+} from "@aws-sdk/client-lambda";
 
-import { startCourseIngestion } from '../ingest/start-course-ingestion';
-import { parseYouTubeUrl } from '../youtube/parse-youtube-url';
-import { saveCourseManifest, saveOutline } from '../storage/course-artifacts';
-import { generateOutlineFromChunks } from '../agents/outliner';
-import { callCourseMetadata } from './course-metadata-client';
-import { toUserSafeReason } from './failure-reason';
+import { startCourseIngestion } from "../ingest/start-course-ingestion";
+import { parseYouTubeUrl } from "../youtube/parse-youtube-url";
+import {
+  loadCourseManifest,
+  loadOutline,
+  saveCourseManifest,
+  saveOutline,
+} from "../storage/course-artifacts";
+import { generateOutlineFromChunks } from "../agents/outliner";
+import { callCourseMetadata } from "./course-metadata-client";
+import { toUserSafeReason } from "./failure-reason";
+import { getOpenAiClient } from "../config/provider-secrets";
+import { runIdempotentStage } from "../jobs/stage-idempotency";
 
 const lambda = new LambdaClient({});
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
 
@@ -56,7 +60,10 @@ async function fanOutChapterQuizzes(
 ) {
   const fnName = process.env.GENERATE_CHAPTER_QUIZ_FUNCTION_NAME;
   if (!fnName) {
-    console.warn('[generate-course] GENERATE_CHAPTER_QUIZ_FUNCTION_NAME not set; skipping quiz fan-out', { courseId });
+    console.warn(
+      "[generate-course] GENERATE_CHAPTER_QUIZ_FUNCTION_NAME not set; skipping quiz fan-out",
+      { courseId },
+    );
     return;
   }
 
@@ -71,9 +78,12 @@ async function fanOutChapterQuizzes(
           ),
         }),
       );
-      console.log('[generate-course] quiz generation queued', { courseId, chapterId: chapter.id });
+      console.log("[generate-course] quiz generation queued", {
+        courseId,
+        chapterId: chapter.id,
+      });
     } catch (e: any) {
-      console.error('[generate-course] failed to queue chapter quiz', {
+      console.error("[generate-course] failed to queue chapter quiz", {
         courseId,
         chapterId: chapter.id,
         error: String(e?.message ?? e),
@@ -99,7 +109,7 @@ async function searchChunks(input: {
 export const handler = async (event: {
   courseId: string;
   userId: string;
-  sourceType?: 'YOUTUBE_PLAYLIST' | 'YOUTUBE_VIDEO';
+  sourceType?: "YOUTUBE_PLAYLIST" | "YOUTUBE_VIDEO";
   sourceUrl?: string;
   playlistUrl?: string; // legacy alias for sourceUrl
   playlistId?: string;
@@ -108,61 +118,88 @@ export const handler = async (event: {
   const { courseId, userId } = event;
   const sourceUrl = event.sourceUrl ?? event.playlistUrl!;
   const parsed = event.sourceType
-    ? { sourceType: event.sourceType, playlistId: event.playlistId, videoId: event.videoId }
+    ? {
+        sourceType: event.sourceType,
+        playlistId: event.playlistId,
+        videoId: event.videoId,
+      }
     : parseYouTubeUrl(sourceUrl);
 
-  console.log('[generate-course] start', { courseId, userId, sourceType: parsed.sourceType });
+  console.log("[generate-course] start", {
+    courseId,
+    sourceType: parsed.sourceType,
+  });
 
   try {
-    console.log('[generate-course] status → INGESTING', { courseId });
+    console.log("[generate-course] status → INGESTING", { courseId });
     await callCourseMetadata({
-      action: 'updateStatus',
+      action: "updateStatus",
       courseId,
-      status: 'INGESTING',
+      status: "INGESTING",
     });
 
-    const ingestion = await startCourseIngestion({
+    const ingestionStage = await runIdempotentStage(
       courseId,
-      sourceType: parsed.sourceType,
-      sourceUrl,
-      playlistId: parsed.playlistId,
-      videoId: parsed.videoId,
+      "INGEST_SOURCE",
+      async () => {
+        const ingestion = await startCourseIngestion({
+          courseId,
+          sourceType: parsed.sourceType,
+          sourceUrl,
+          playlistId: parsed.playlistId,
+          videoId: parsed.videoId,
+        });
+
+        console.log("[generate-course] ingestion complete", {
+          courseId,
+          playlistId: ingestion.playlistId,
+          videoCount: ingestion.videoIds.length,
+          results: ingestion.results.map((r: any) => ({
+            videoId: r.videoId,
+            status: r.status,
+          })),
+        });
+
+        const okTranscripts = ingestion.results.filter(
+          (r: any) => r.status === "OK",
+        );
+        if (
+          parsed.sourceType === "YOUTUBE_VIDEO" &&
+          okTranscripts.length === 0
+        ) {
+          throw new Error("Could not load transcript for this video.");
+        }
+
+        const nextManifest = {
+          courseId,
+          sourceType: parsed.sourceType,
+          sourceUrl,
+          playlistUrl: sourceUrl,
+          playlistId: ingestion.playlistId,
+          videoIds: ingestion.videoIds,
+          transcripts: okTranscripts.map((r: any) => ({
+            videoId: r.videoId,
+            key: r.key,
+            segmentCount: r.segmentCount,
+          })),
+          createdAt: new Date().toISOString(),
+        };
+        await saveCourseManifest(courseId, nextManifest);
+        return nextManifest;
+      },
+    );
+    const manifest = ingestionStage.executed
+      ? ingestionStage.value
+      : await loadCourseManifest(courseId);
+
+    console.log("[generate-course] status → PROCESSING", {
+      courseId,
+      transcriptCount: manifest.transcripts.length,
     });
-
-    console.log('[generate-course] ingestion complete', {
-      courseId,
-      playlistId: ingestion.playlistId,
-      videoCount: ingestion.videoIds.length,
-      results: ingestion.results.map((r: any) => ({ videoId: r.videoId, status: r.status })),
-    });
-
-    const okTranscripts = ingestion.results.filter((r: any) => r.status === 'OK');
-    if (parsed.sourceType === 'YOUTUBE_VIDEO' && okTranscripts.length === 0) {
-      throw new Error('Could not load transcript for this video.');
-    }
-
-    const manifest = {
-      courseId,
-      sourceType: parsed.sourceType,
-      sourceUrl,
-      playlistUrl: sourceUrl, // legacy field
-      playlistId: ingestion.playlistId,
-      videoIds: ingestion.videoIds,
-      transcripts: okTranscripts.map((r: any) => ({
-        videoId: r.videoId,
-        key: r.key,
-        segmentCount: r.segmentCount,
-      })),
-      createdAt: new Date().toISOString(),
-    };
-
-    await saveCourseManifest(courseId, manifest);
-
-    console.log('[generate-course] status → PROCESSING', { courseId, transcriptCount: manifest.transcripts.length });
     await callCourseMetadata({
-      action: 'updateStatus',
+      action: "updateStatus",
       courseId,
-      status: 'PROCESSING',
+      status: "PROCESSING",
     });
 
     for (const transcript of manifest.transcripts) {
@@ -172,57 +209,75 @@ export const handler = async (event: {
         videoId: transcript.videoId,
       };
 
-      console.log('[generate-course] embedding transcript', { courseId, videoId: transcript.videoId });
-      await invokeJson(
-        process.env.EMBED_TRANSCRIPT_FUNCTION_NAME!,
-        payload,
+      console.log("[generate-course] embedding transcript", {
+        courseId,
+        videoId: transcript.videoId,
+      });
+      await runIdempotentStage(courseId, `EMBED_${transcript.videoId}`, () =>
+        invokeJson(process.env.EMBED_TRANSCRIPT_FUNCTION_NAME!, payload),
       );
 
-      console.log('[generate-course] processing transcript', { courseId, videoId: transcript.videoId });
-      await invokeJson(
-        process.env.PROCESS_TRANSCRIPT_FUNCTION_NAME!,
-        payload,
+      console.log("[generate-course] processing transcript", {
+        courseId,
+        videoId: transcript.videoId,
+      });
+      await runIdempotentStage(courseId, `INDEX_${transcript.videoId}`, () =>
+        invokeJson(process.env.PROCESS_TRANSCRIPT_FUNCTION_NAME!, payload),
       );
     }
 
-    console.log('[generate-course] status → OUTLINING', { courseId });
+    console.log("[generate-course] status → OUTLINING", { courseId });
     await callCourseMetadata({
-      action: 'updateStatus',
+      action: "updateStatus",
       courseId,
-      status: 'OUTLINING',
+      status: "OUTLINING",
     });
 
-    const search = await searchChunks({
+    const outlineStage = await runIdempotentStage(
       courseId,
-      query: 'main topics and concepts in this course',
-      limit: 6,
-    });
+      "GENERATE_OUTLINE",
+      async () => {
+        const search = await searchChunks({
+          courseId,
+          query: "main topics and concepts in this course",
+          limit: 6,
+        });
 
-    console.log('[generate-course] search results', { courseId, count: search.results?.length ?? 0 });
+        console.log("[generate-course] search results", {
+          courseId,
+          count: search.results?.length ?? 0,
+        });
+        if (!search.results?.length) {
+          throw new Error("No embedded chunks found after processing.");
+        }
 
-    if (!search.results?.length) {
-      throw new Error('No embedded chunks found after processing.');
-    }
-
-    const outline = await generateOutlineFromChunks(search.results);
-
-    console.log('[generate-course] outline generated', { courseId, title: outline.title, chapters: outline.chapters.length });
-
-    await saveOutline(courseId, outline);
+        const generated = await generateOutlineFromChunks(search.results);
+        console.log("[generate-course] outline generated", {
+          courseId,
+          title: generated.title,
+          chapters: generated.chapters.length,
+        });
+        await saveOutline(courseId, generated);
+        return generated;
+      },
+    );
+    const outline = outlineStage.executed
+      ? outlineStage.value
+      : await loadOutline(courseId);
 
     await callCourseMetadata({
-      action: 'upsert',
+      action: "upsert",
       courseId,
       userId,
       title: outline.title,
       playlistUrl: sourceUrl,
       playlistId: manifest.playlistId,
-      status: 'READY',
+      status: "READY",
       sourceType: parsed.sourceType,
       sourceUrl,
     });
 
-    console.log('[generate-course] status → READY', { courseId, userId });
+    console.log("[generate-course] status → READY", { courseId });
 
     // Course is READY (outline available). Generate quizzes in the background
     // without blocking — per-chapter status is tracked separately.
@@ -230,23 +285,23 @@ export const handler = async (event: {
 
     return {
       courseId,
-      status: 'READY',
+      status: "READY",
       title: outline.title,
     };
   } catch (e: any) {
     const rawError = String(e?.message ?? e);
     const errorMessage = toUserSafeReason(e);
-    console.error('[generate-course] FAILED', { courseId, userId, error: rawError });
+    console.error("[generate-course] FAILED", { courseId, error: rawError });
 
     try {
       await callCourseMetadata({
-        action: 'updateStatus',
+        action: "updateStatus",
         courseId,
-        status: 'FAILED',
+        status: "FAILED",
         errorMessage,
       });
     } catch (metaErr: any) {
-      console.error('[generate-course] could not update status to FAILED', {
+      console.error("[generate-course] could not update status to FAILED", {
         courseId,
         metaError: String(metaErr?.message ?? metaErr),
       });

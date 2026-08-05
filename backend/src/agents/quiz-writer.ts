@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 // NOTE on backwards compatibility:
 // The study flow (backend/src/api/routes/study.ts) and the frontend chapter
@@ -12,9 +12,9 @@ import { z } from 'zod';
 //   misconception_target - what learner confusion an MCQ's distractors target
 const QuestionSchema = z.object({
   id: z.string(),
-  type: z.enum(['mcq', 'short']),
+  type: z.enum(["mcq", "short"]),
   // Pedagogical category, used to enforce the question mix.
-  question_kind: z.enum(['recall', 'conceptual', 'application', 'comparison']),
+  question_kind: z.enum(["recall", "conceptual", "application", "comparison"]),
   question: z.string(),
   // Models emit null for short-answer questions; normalize null -> undefined
   // so the saved artifact omits the field (matching the original behavior).
@@ -32,7 +32,7 @@ const QuestionSchema = z.object({
   explanation: z.string(),
   source_chunk_id: z.string(),
   source_quote: z.string(),
-  difficulty: z.enum(['easy', 'medium', 'hard']),
+  difficulty: z.enum(["easy", "medium", "hard"]),
   concept_tags: z.array(z.string()).min(1),
 });
 
@@ -45,10 +45,6 @@ const QuizSchema = z.object({
 });
 
 export type Quiz = z.infer<typeof QuizSchema>;
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
 
 const SYSTEM = `
 You are an expert educational assessment designer.
@@ -88,7 +84,7 @@ function buildPrompt(input: {
 ${c.text}
 </chunk>`,
     )
-    .join('\n');
+    .join("\n");
 
   return `
 <task>
@@ -100,7 +96,7 @@ id: ${input.chapterId}
 title: ${input.chapterTitle}
 summary: ${input.chapterSummary}
 learning_objectives:
-${input.learningObjectives.map((o) => `- ${o}`).join('\n')}
+${input.learningObjectives.map((o) => `- ${o}`).join("\n")}
 </chapter>
 
 <question_count>
@@ -164,9 +160,17 @@ label it conceptual/application to dodge the recall cap.
   * options a careful reader can eliminate from a single sentence
   * trivially eliminable filler
 - A good distractor requires conceptual understanding to rule out, not just
-  attention to one stated fact.
+  attention to one stated fact. A strong pattern: use the CORRECT answer to a
+  NEARBY but different question as a distractor.
+- Never include a silly/throwaway option (e.g. "it gets deleted to free
+  space") — every option must be something a real learner might believe.
 - Keep every choice CONCISE — a short phrase or clause, ideally under ~140
   characters. No choice should be a sentence-long paragraph.
+- LENGTH PARITY: all four choices must be roughly the same length. The correct
+  answer must NOT be noticeably longer or more detailed than the distractors —
+  that gives it away without understanding.
+- Vary the position of the correct answer across the quiz; never default to
+  listing it first.
 - Set "misconception_target" to a short phrase naming the confusion the
   distractors are designed to catch (e.g. "Confuses concept A with concept B").
 </mcq_rules>
@@ -215,29 +219,29 @@ ${chunksText}
 function questionIssues(q: Question): string[] {
   const issues: string[] = [];
 
-  if (q.type === 'mcq') {
+  if (q.type === "mcq") {
     const choices = q.choices ?? [];
     if (choices.length !== 4) {
-      issues.push('MCQ must have exactly 4 choices');
+      issues.push("MCQ must have exactly 4 choices");
     } else {
       const normalized = choices.map((c) => c.trim().toLowerCase());
       if (new Set(normalized).size !== normalized.length) {
-        issues.push('MCQ choices are not distinct');
+        issues.push("MCQ choices are not distinct");
       }
       if (!normalized.includes(q.answer.trim().toLowerCase())) {
-        issues.push('MCQ answer is not one of the choices');
+        issues.push("MCQ answer is not one of the choices");
       }
     }
   }
 
   if (!q.concept_tags?.length) {
-    issues.push('empty concept_tags');
+    issues.push("empty concept_tags");
   }
   if (!q.source_quote?.trim() || !q.source_chunk_id?.trim()) {
-    issues.push('missing source grounding');
+    issues.push("missing source grounding");
   }
   if (!q.explanation?.trim()) {
-    issues.push('missing explanation');
+    issues.push("missing explanation");
   }
 
   return issues;
@@ -260,7 +264,10 @@ const TRIVIA_PATTERNS = [
 ];
 
 export function isRecall(q: Question): boolean {
-  return q.question_kind === 'recall' || TRIVIA_PATTERNS.some((p) => p.test(q.question));
+  return (
+    q.question_kind === "recall" ||
+    TRIVIA_PATTERNS.some((p) => p.test(q.question))
+  );
 }
 
 /**
@@ -289,7 +296,7 @@ function reviewQuiz(quiz: Quiz): { cleaned: Question[]; problems: string[] } {
   const valid = quiz.questions.filter((q) => {
     const issues = questionIssues(q);
     if (issues.length) {
-      problems.push(`question ${q.id}: ${issues.join('; ')}`);
+      problems.push(`question ${q.id}: ${issues.join("; ")}`);
       return false;
     }
     return true;
@@ -300,7 +307,9 @@ function reviewQuiz(quiz: Quiz): { cleaned: Question[]; problems: string[] } {
   const recall = valid.filter(isRecall);
   let kept = valid;
   if (recall.length > 1) {
-    problems.push(`${recall.length} recall questions (max 1) — trimming extras`);
+    problems.push(
+      `${recall.length} recall questions (max 1) — trimming extras`,
+    );
     const drop = new Set(recall.slice(1).map((q) => q.id));
     kept = valid.filter((q) => !drop.has(q.id));
   }
@@ -309,7 +318,9 @@ function reviewQuiz(quiz: Quiz): { cleaned: Question[]; problems: string[] } {
   // exists. Reorder only — the saved schema/shape is unchanged.
   const cleaned = leadWithNonRecall(kept);
   if (cleaned[0] !== kept[0]) {
-    problems.push('reordered: leading recall/definition demoted below a conceptual question');
+    problems.push(
+      "reordered: leading recall/definition demoted below a conceptual question",
+    );
   }
 
   return { cleaned, problems };
@@ -327,37 +338,37 @@ export async function generateQuiz(input: {
   }>;
 }): Promise<Quiz> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 6000,
       temperature: 0.3,
       system: SYSTEM,
       messages: [
         {
-          role: 'user',
+          role: "user",
           content: buildPrompt(input),
         },
       ],
     });
 
-    const text =
-      res.content[0]?.type === 'text'
-        ? res.content[0].text
-        : '';
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
 
-    const jsonStart = text.indexOf('{');
-    const jsonEnd = text.lastIndexOf('}');
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
 
     if (jsonStart === -1 || jsonEnd === -1) continue;
 
     let quiz: Quiz;
     try {
-      quiz = QuizSchema.parse(
-        JSON.parse(text.slice(jsonStart, jsonEnd + 1)),
-      );
+      quiz = QuizSchema.parse(JSON.parse(text.slice(jsonStart, jsonEnd + 1)));
     } catch (e: any) {
       const detail = e?.issues
-        ? e.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).slice(0, 6).join(' | ')
+        ? e.issues
+            .map((i: any) => `${i.path.join(".")}: ${i.message}`)
+            .slice(0, 6)
+            .join(" | ")
         : e?.message;
       console.warn(
         `[quiz-writer] invalid shape (attempt ${attempt + 1}) for ${input.chapterId}: ${detail}`,
@@ -377,9 +388,119 @@ export async function generateQuiz(input: {
     if (cleaned.length < 4 && attempt < 2) continue;
 
     if (cleaned.length >= 3) {
-      return { ...quiz, questions: cleaned };
+      // Presentation quality: shuffle answer positions (kills "it's always A"
+      // and length-position tells) and log soft MCQ-quality issues.
+      const shuffled = shuffleMcqChoices(cleaned);
+      const softIssues = shuffled.flatMap((q) =>
+        mcqQualityIssues(q).map((i) => `question ${q.id}: ${i}`),
+      );
+      const positions = answerPositionStats(shuffled);
+      if (softIssues.length || positions.biased) {
+        console.warn(`[quiz-writer] MCQ quality for ${input.chapterId}:`, {
+          softIssues,
+          positionCounts: positions.counts,
+        });
+      }
+      return { ...quiz, questions: shuffled };
     }
   }
 
-  throw new Error('Failed to generate valid quiz');
+  throw new Error("Failed to generate valid quiz");
+}
+
+// --- MCQ presentation quality (post-processing + soft checks) ----------------
+// The prompt asks for parity/variety, but models drift — so position bias is
+// FIXED deterministically here (shuffle), and remaining style issues are
+// logged for the eval loop rather than failing generation.
+
+/**
+ * Shuffle each MCQ's choices (Fisher-Yates) so the correct answer's position
+ * is uniform — never biased toward A. "answer" is matched by text, so only the
+ * presentation order changes. `rng` is injectable for deterministic tests.
+ */
+export function shuffleMcqChoices(
+  questions: Question[],
+  rng: () => number = Math.random,
+): Question[] {
+  return questions.map((q) => {
+    if (q.type !== "mcq" || !q.choices || q.choices.length < 2) return q;
+    const choices = [...q.choices];
+    for (let i = choices.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = choices[i]!;
+      choices[i] = choices[j]!;
+      choices[j] = tmp;
+    }
+    return { ...q, choices };
+  });
+}
+
+// Options that are giveaway filler rather than plausible beliefs.
+const WEAK_DISTRACTOR_RE = /^(none|all) of the above$/i;
+
+/**
+ * Soft MCQ style issues (empty array = passes): option length imbalance that
+ * telegraphs the answer, near-empty or filler distractors, and duplicates.
+ * Logged only — content validity is enforced by questionIssues().
+ */
+export function mcqQualityIssues(q: Question): string[] {
+  if (q.type !== "mcq" || !q.choices?.length) return [];
+  const issues: string[] = [];
+  const lengths = q.choices.map((c) => c.trim().length);
+
+  // The correct answer must not stand out by length alone.
+  const answerLen = q.answer.trim().length;
+  const distractorLens = q.choices
+    .filter((c) => c.trim().toLowerCase() !== q.answer.trim().toLowerCase())
+    .map((c) => c.trim().length);
+  if (distractorLens.length) {
+    const meanDistractor =
+      distractorLens.reduce((a, b) => a + b, 0) / distractorLens.length;
+    if (answerLen > meanDistractor * 1.6) {
+      issues.push(
+        `correct answer is much longer than the distractors (${answerLen} vs ~${Math.round(meanDistractor)} chars)`,
+      );
+    }
+  }
+  if (Math.max(...lengths) > Math.min(...lengths) * 3) {
+    issues.push("option lengths are badly imbalanced");
+  }
+
+  for (const c of q.choices) {
+    const t = c.trim();
+    if (t.length < 4) issues.push(`near-empty option: "${t}"`);
+    if (WEAK_DISTRACTOR_RE.test(t)) issues.push(`filler option: "${t}"`);
+  }
+
+  const normalized = q.choices.map((c) => c.trim().toLowerCase());
+  if (new Set(normalized).size !== normalized.length)
+    issues.push("duplicate options");
+
+  return issues;
+}
+
+/**
+ * Where the correct answer sits across a quiz's MCQs. `biased` flags a
+ * distribution where one position holds a clear majority (with enough
+ * questions for that to mean anything).
+ */
+export function answerPositionStats(questions: Question[]): {
+  counts: number[];
+  total: number;
+  biased: boolean;
+} {
+  const counts = [0, 0, 0, 0];
+  let total = 0;
+  for (const q of questions) {
+    if (q.type !== "mcq" || !q.choices?.length) continue;
+    const idx = q.choices.findIndex(
+      (c) => c.trim().toLowerCase() === q.answer.trim().toLowerCase(),
+    );
+    if (idx >= 0 && idx < 4) {
+      counts[idx] = (counts[idx] ?? 0) + 1;
+      total += 1;
+    }
+  }
+  const biased = total >= 4 && Math.max(...counts) / total > 0.6;
+  return { counts, total, biased };
 }

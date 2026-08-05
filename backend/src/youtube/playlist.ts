@@ -1,9 +1,9 @@
 export function extractPlaylistId(playlistUrl: string): string {
   const url = new URL(playlistUrl);
-  const playlistId = url.searchParams.get('list');
+  const playlistId = url.searchParams.get("list");
 
   if (!playlistId) {
-    throw new Error('Playlist URL must contain list= parameter');
+    throw new Error("Playlist URL must contain list= parameter");
   }
 
   return playlistId;
@@ -21,27 +21,25 @@ type PlaylistItemsResponse = {
   }>;
 };
 
-export async function getPlaylistVideos(playlistUrl: string): Promise<string[]> {
+export async function getPlaylistVideos(
+  playlistUrl: string,
+): Promise<string[]> {
   const playlistId = extractPlaylistId(playlistUrl);
-  const apiKey = process.env.YOUTUBE_API_KEY;
-
-  if (!apiKey) {
-    throw new Error('YOUTUBE_API_KEY is not configured');
-  }
+  const apiKey = await getProviderSecret("YOUTUBE_API_KEY");
 
   const videoIds: string[] = [];
   let pageToken: string | undefined;
 
   do {
-    const url = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
+    const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
 
-    url.searchParams.set('part', 'snippet');
-    url.searchParams.set('playlistId', playlistId);
-    url.searchParams.set('maxResults', '50');
-    url.searchParams.set('key', apiKey);
+    url.searchParams.set("part", "snippet");
+    url.searchParams.set("playlistId", playlistId);
+    url.searchParams.set("maxResults", "50");
+    url.searchParams.set("key", apiKey);
 
     if (pageToken) {
-      url.searchParams.set('pageToken', pageToken);
+      url.searchParams.set("pageToken", pageToken);
     }
 
     const response = await fetch(url);
@@ -66,3 +64,4 @@ export async function getPlaylistVideos(playlistUrl: string): Promise<string[]> 
 
   return videoIds;
 }
+import { getProviderSecret } from "../config/provider-secrets";

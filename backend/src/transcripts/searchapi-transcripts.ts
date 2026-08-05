@@ -18,19 +18,15 @@ export type TranscriptSegment = {
 export async function fetchTranscriptFromSearchApi(
   videoId: string,
 ): Promise<TranscriptSegment[]> {
-  const apiKey = process.env.SEARCHAPI_API_KEY;
+  const apiKey = await getProviderSecret("SEARCHAPI_API_KEY");
 
-  if (!apiKey) {
-    throw new Error('SEARCHAPI_API_KEY is not configured');
-  }
+  const url = new URL("https://www.searchapi.io/api/v1/search");
 
-  const url = new URL('https://www.searchapi.io/api/v1/search');
-
-  url.searchParams.set('engine', 'youtube_transcripts');
-  url.searchParams.set('video_id', videoId);
+  url.searchParams.set("engine", "youtube_transcripts");
+  url.searchParams.set("video_id", videoId);
 
   // Important: if English is not available, return first available transcript.
-  url.searchParams.set('only_available', 'true');
+  url.searchParams.set("only_available", "true");
 
   const response = await fetch(url, {
     headers: {
@@ -55,3 +51,4 @@ export async function fetchTranscriptFromSearchApi(
     duration: s.duration,
   }));
 }
+import { getProviderSecret } from "../config/provider-secrets";

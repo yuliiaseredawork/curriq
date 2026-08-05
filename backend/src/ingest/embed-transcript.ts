@@ -1,11 +1,11 @@
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import OpenAI from 'openai';
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getOpenAiClient } from "../config/provider-secrets";
 
 const s3 = new S3Client({});
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
 
 type Segment = {
   text: string;
@@ -21,13 +21,13 @@ type Chunk = {
 function chunk(segments: Segment[]): Chunk[] {
   const result: Chunk[] = [];
 
-  let acc = '';
+  let acc = "";
   let start = Number(segments[0]?.offset ?? segments[0]?.start ?? 0) || 0;
 
   for (const segment of segments) {
-    const text = segment.text ?? '';
+    const text = segment.text ?? "";
 
-    if ((acc + ' ' + text).length > 1600) {
+    if ((acc + " " + text).length > 1600) {
       if (acc.trim()) {
         result.push({ text: acc.trim(), start });
       }
@@ -35,7 +35,7 @@ function chunk(segments: Segment[]): Chunk[] {
       acc = text;
       start = Number(segment.offset ?? segment.start ?? 0) || 0;
     } else {
-      acc += ' ' + text;
+      acc += " " + text;
     }
   }
 
@@ -47,8 +47,10 @@ function chunk(segments: Segment[]): Chunk[] {
 }
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
 
@@ -98,7 +100,7 @@ export const handler = async (event: {
         videoId: event.videoId,
         chunks: embeddedChunks,
       }),
-      ContentType: 'application/json',
+      ContentType: "application/json",
     }),
   );
 

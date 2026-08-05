@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useMemo, useState, type ReactNode } from 'react';
-import { KeyTerm } from './KeyTerm';
+import { useMemo, useState, type ReactNode } from "react";
+import { KeyTerm } from "./KeyTerm";
 
 // Lightweight "scannable reading" layer: splits long text into shorter
 // paragraphs and (optionally) highlights key terms — all via safe React
@@ -16,7 +16,7 @@ import { KeyTerm } from './KeyTerm';
 const HIGHLIGHT_KEY_TERMS = false;
 
 function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Build one case-insensitive regex matching any key term (plural-tolerant). */
@@ -24,7 +24,7 @@ function buildTermRegex(terms: string[]): RegExp | null {
   const seen = new Set<string>();
   const uniq: string[] = [];
   for (const raw of terms) {
-    const t = (raw ?? '').trim();
+    const t = (raw ?? "").trim();
     if (t.length < 2) continue;
     const k = t.toLowerCase();
     if (!seen.has(k)) {
@@ -35,9 +35,9 @@ function buildTermRegex(terms: string[]): RegExp | null {
   if (!uniq.length) return null;
   // Longest first so multi-word / longer terms win over their substrings.
   uniq.sort((a, b) => b.length - a.length);
-  const parts = uniq.map((t) => `${escapeRegExp(t.replace(/s$/i, ''))}s?`);
+  const parts = uniq.map((t) => `${escapeRegExp(t.replace(/s$/i, ""))}s?`);
   try {
-    return new RegExp(`(?<!\\w)(${parts.join('|')})(?!\\w)`, 'gi');
+    return new RegExp(`(?<!\\w)(${parts.join("|")})(?!\\w)`, "gi");
   } catch {
     return null;
   }
@@ -68,9 +68,9 @@ export function splitParagraphs(text: string, maxLen = 320): string[] {
     // Split only at whitespace following sentence punctuation — keeps "e.g."
     // and decimals intact and never discards characters.
     const sentences = block.split(/(?<=[.!?])\s+/);
-    let acc = '';
+    let acc = "";
     for (const s of sentences) {
-      if (acc && (acc + ' ' + s).length > maxLen) {
+      if (acc && (acc + " " + s).length > maxLen) {
         out.push(acc);
         acc = s;
       } else {
@@ -99,7 +99,7 @@ function highlight(
   let m: RegExpExecArray | null;
   while ((m = regex.exec(text)) !== null) {
     const term = m[0];
-    const stem = term.toLowerCase().replace(/s$/, '');
+    const stem = term.toLowerCase().replace(/s$/, "");
     const used = perTerm.get(stem) ?? 0;
     // Cap to avoid visual noise; skipped matches stay as plain text.
     if (used >= maxPerTerm || inParagraph >= maxPerParagraph) continue;
@@ -117,7 +117,7 @@ function highlight(
 export function ScannableText({
   text,
   keyTerms = [],
-  className = '',
+  className = "",
   clampChars,
   maxPerTerm = 2,
   maxPerParagraph = 6,
@@ -132,19 +132,16 @@ export function ScannableText({
   inline?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const safe = (text ?? '').trim();
+  const safe = (text ?? "").trim();
 
   // When the flag is off, no regex → highlight() returns plain text, so no
   // <KeyTerm> spans are ever produced (paragraph/clamp/inline behavior intact).
-  const regex = useMemo(
-    () => (HIGHLIGHT_KEY_TERMS ? buildTermRegex(keyTerms) : null),
-    [keyTerms.join('|')],
-  );
+  const regex = HIGHLIGHT_KEY_TERMS ? buildTermRegex(keyTerms) : null;
 
   const collapsible = !!clampChars && safe.length > (clampChars ?? 0);
   const isClamped = collapsible && !expanded;
   const shown = isClamped
-    ? `${safe.slice(0, clampChars).replace(/\s+\S*$/, '')}…`
+    ? `${safe.slice(0, clampChars).replace(/\s+\S*$/, "")}…`
     : safe;
   const paragraphs = useMemo(() => splitParagraphs(shown), [shown]);
 
@@ -158,7 +155,7 @@ export function ScannableText({
   if (inline) {
     return (
       <span className={className}>
-        {highlight(safe, regex, perTerm, maxPerTerm, maxPerParagraph, 'i')}
+        {highlight(safe, regex, perTerm, maxPerTerm, maxPerParagraph, "i")}
       </span>
     );
   }
@@ -176,7 +173,7 @@ export function ScannableText({
           className="text-sm text-blue-400 hover:text-blue-300"
           onClick={() => setExpanded((e) => !e)}
         >
-          {expanded ? 'Show less' : 'Show more'}
+          {expanded ? "Show less" : "Show more"}
         </button>
       )}
     </div>

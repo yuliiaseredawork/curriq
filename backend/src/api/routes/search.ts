@@ -1,7 +1,8 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
-import OpenAI from 'openai';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { Hono } from "hono";
+import { z } from "zod";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import { requireCourseAccess } from "../../auth/course-access";
+import { getOpenAiClient } from "../../config/provider-secrets";
 
 const Input = z.object({
   courseId: z.string(),
@@ -9,15 +10,13 @@ const Input = z.object({
   limit: z.number().int().min(1).max(20).optional(),
 });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
-
 const lambda = new LambdaClient({});
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
 
@@ -26,9 +25,10 @@ async function embed(text: string): Promise<number[]> {
 
 export const search = new Hono();
 
-search.post('/', async (c) => {
+search.post("/", async (c) => {
   const body = await c.req.json();
   const input = Input.parse(body);
+  await requireCourseAccess(c, input.courseId);
 
   const embedding = await embed(input.query);
 
@@ -45,9 +45,7 @@ search.post('/', async (c) => {
     }),
   );
 
-  const payload = JSON.parse(
-    new TextDecoder().decode(response.Payload),
-  );
+  const payload = JSON.parse(new TextDecoder().decode(response.Payload));
 
   return c.json({
     query: input.query,

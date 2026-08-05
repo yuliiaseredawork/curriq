@@ -1,17 +1,19 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth, useUser, useClerk } from '@clerk/nextjs';
-import { createApiClient, DuplicateSourceError } from '@/lib/api';
-import { CourseCard } from '@/components/CourseCard';
+import { useEffect, useRef, useState } from "react";
+import { useAuth, useUser, useClerk } from "@clerk/nextjs";
+import { createApiClient, DuplicateSourceError } from "@/lib/api";
+import { CourseCard } from "@/components/CourseCard";
+import { Landing } from "@/components/Landing";
 import {
   isCoursePending,
   homeMode,
+  HOME_HERO_EYEBROW,
   HOME_HERO_HEADLINE,
   HOME_VALUE_PROP,
   HOME_HERO_STEPS,
   TODAYS_PLAN_LABEL,
+  DASHBOARD_SUBTITLE_FALLBACK,
   CONTINUE_LEARNING_LABEL,
   primaryButtonClass,
   YOUR_COURSES_LABEL,
@@ -23,8 +25,14 @@ import {
   visibleBreakdownCourses,
   CREATE_NEW_PATH_HEADING,
   CREATE_NEW_PATH_HELPER,
-  scheduleStatusLabel,
-} from '@/lib/learnerCopy';
+  deadlineView,
+  partitionCoursesForDashboard,
+  visibleCourses,
+  showMoreCoursesLabel,
+  ATTENTION_SECTION_LABEL,
+  IMPORT_FAILED_TITLE,
+  safeErrorMessage,
+} from "@/lib/learnerCopy";
 import {
   pageShell,
   pageContainer,
@@ -34,43 +42,54 @@ import {
   sectionHeading,
   eyebrow,
   ghostLink,
-} from '@/lib/ui';
+} from "@/lib/ui";
 
 export default function Home() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const { user } = useUser();
   const { signOut } = useClerk();
-  const router = useRouter();
   const api = createApiClient(getToken);
 
-  const [playlistUrl, setPlaylistUrl] = useState('');
+  const [playlistUrl, setPlaylistUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingCourses, setLoadingCourses] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [courses, setCourses] = useState<any[]>([]);
-  const [sourceTab, setSourceTab] = useState<'youtube' | 'pdf'>('youtube');
+  const [sourceTab, setSourceTab] = useState<"youtube" | "pdf">("youtube");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfStatus, setPdfStatus] = useState('');
-  const [deadline, setDeadline] = useState<'none' | '1w' | '2w' | '1m' | 'custom'>('none');
-  const [customDate, setCustomDate] = useState('');
+  const [pdfStatus, setPdfStatus] = useState("");
+  const [deadline, setDeadline] = useState<
+    "none" | "1w" | "2w" | "1m" | "custom"
+  >("none");
+  const [customDate, setCustomDate] = useState("");
   const [session, setSession] = useState<any>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [duplicate, setDuplicate] = useState<{ courseId?: string; title?: string } | null>(null);
+  const [duplicate, setDuplicate] = useState<{
+    courseId?: string;
+    title?: string;
+  } | null>(null);
+  // The main grid shows a curated first screen; the rest is one click away.
+  const [showAllCourses, setShowAllCourses] = useState(false);
   // Best-effort per-course progress so READY cards can show "Continue" + a hint.
-  const [progressByCourse, setProgressByCourse] = useState<Record<string, any>>({});
+  const [progressByCourse, setProgressByCourse] = useState<Record<string, any>>(
+    {},
+  );
 
-  const userEmail = user?.primaryEmailAddress?.emailAddress ?? '';
-  const userId = user?.primaryEmailAddress?.emailAddress
-    ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
-    : user?.id
-      ? `clerk:${user.id}`
-      : null;
+  const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
 
   function computeTargetDate(): string | undefined {
-    const days = deadline === '1w' ? 7 : deadline === '2w' ? 14 : deadline === '1m' ? 30 : 0;
+    const days =
+      deadline === "1w"
+        ? 7
+        : deadline === "2w"
+          ? 14
+          : deadline === "1m"
+            ? 30
+            : 0;
     if (days > 0) return new Date(Date.now() + days * 86400000).toISOString();
-    if (deadline === 'custom' && customDate) return new Date(customDate).toISOString();
+    if (deadline === "custom" && customDate)
+      return new Date(customDate).toISOString();
     return undefined;
   }
 
@@ -84,12 +103,12 @@ export default function Home() {
 
   async function handleRetry(courseId: string) {
     setRetryingId(courseId);
-    setError('');
+    setError("");
     try {
       await api.retryCourse(courseId);
       await loadCourses();
     } catch (e: any) {
-      setError(e.message ?? 'Retry failed');
+      setError(e.message ?? "Retry failed");
     } finally {
       setRetryingId(null);
     }
@@ -101,7 +120,7 @@ export default function Home() {
       const result = await api.listCourses();
       setCourses(result.courses ?? []);
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load courses');
+      setError(e.message ?? "Failed to load courses");
     } finally {
       setLoadingCourses(false);
     }
@@ -109,19 +128,19 @@ export default function Home() {
 
   async function handleGenerate() {
     setLoading(true);
-    setError('');
+    setError("");
     setDuplicate(null);
     try {
       // POST /courses returns 202 immediately; generation runs server-side.
       // Show the new "Generating…" card now and let background polling finish.
       await api.createCourse(playlistUrl, computeTargetDate());
-      setPlaylistUrl('');
+      setPlaylistUrl("");
       await loadCourses();
     } catch (e: any) {
       if (e instanceof DuplicateSourceError) {
         setDuplicate({ courseId: e.existingCourseId, title: e.existingTitle });
       } else {
-        setError(e.message ?? 'Something went wrong');
+        setError(e.message ?? "Something went wrong");
       }
     } finally {
       setLoading(false);
@@ -130,17 +149,21 @@ export default function Home() {
 
   async function handlePdfUpload() {
     if (!pdfFile) return;
+    if (pdfFile.size > 20 * 1024 * 1024) {
+      setError("PDFs must be 20 MB or smaller.");
+      return;
+    }
     setLoading(true);
-    setError('');
+    setError("");
     setDuplicate(null);
-    setPdfStatus('Uploading PDF…');
+    setPdfStatus("Uploading PDF…");
     try {
       const reserved = await api.requestPdfUploadUrl(
         pdfFile.name,
-        pdfFile.type || 'application/pdf',
+        pdfFile.type || "application/pdf",
       );
-      await api.uploadFileToPresignedUrl(reserved.uploadUrl, pdfFile);
-      setPdfStatus('Starting course generation…');
+      await api.uploadFileToPresignedPost(reserved.upload, pdfFile);
+      setPdfStatus("Setting up your learning path…");
       // Returns 202; the "Generating…" card + background polling take over.
       await api.completePdfCourse(reserved.courseId, pdfFile.name);
       setPdfFile(null);
@@ -149,21 +172,16 @@ export default function Home() {
       if (e instanceof DuplicateSourceError) {
         setDuplicate({ courseId: e.existingCourseId, title: e.existingTitle });
       } else {
-        setError(e.message ?? 'PDF course generation failed');
+        setError(e.message ?? IMPORT_FAILED_TITLE);
       }
     } finally {
       setLoading(false);
-      setPdfStatus('');
+      setPdfStatus("");
     }
   }
 
   useEffect(() => {
-    if (!isLoaded) return;
-
-    if (!isSignedIn) {
-      router.replace('/sign-in');
-      return;
-    }
+    if (!isLoaded || !isSignedIn) return;
 
     loadCourses();
     loadToday();
@@ -203,18 +221,18 @@ export default function Home() {
   // "Continue" + a hint. Keyed off the READY id set so it runs once when that
   // set changes (not on every poll tick); never blocks the cards from rendering.
   const readyCourseIds = courses
-    .filter((c) => c.status === 'READY')
+    .filter((c) => c.status === "READY")
     .map((c) => c.courseId)
-    .join(',');
+    .join(",");
   useEffect(() => {
-    if (!userId || !readyCourseIds) return;
+    if (!readyCourseIds) return;
     let cancelled = false;
     (async () => {
-      const ids = readyCourseIds.split(',');
+      const ids = readyCourseIds.split(",");
       const entries = await Promise.all(
         ids.map(async (cid) => {
           try {
-            return [cid, await api.getCourseProgress(cid, userId)] as const;
+            return [cid, await api.getCourseProgress(cid)] as const;
           } catch {
             return null;
           }
@@ -231,10 +249,10 @@ export default function Home() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, readyCourseIds]);
+  }, [readyCourseIds]);
 
-  // Wait for Clerk before rendering anything that calls the API.
-  if (!isLoaded || !isSignedIn) {
+  // Wait for Clerk before deciding which experience to render.
+  if (!isLoaded) {
     return (
       <main className={`${pageShell} flex items-center justify-center`}>
         <p className="text-gray-400">Loading…</p>
@@ -242,10 +260,23 @@ export default function Home() {
     );
   }
 
+  // Signed-out visitors at "/" get the public landing page, not a redirect —
+  // it's the pitch's first impression. The dashboard below is unchanged for
+  // signed-in users.
+  if (!isSignedIn) {
+    return <Landing />;
+  }
+
   const hasCourses = courses.length > 0;
   const mode = homeMode({ hasCourses, loadingCourses });
   const goal = session?.goal;
   const hasPlan = (goal?.taskCount ?? 0) > 0;
+  // Day-one grace: no behind-schedule warning until the learner has actually
+  // practiced something (best-effort, from the per-course progress fetch).
+  const anyStarted = Object.values(progressByCourse).some(
+    (p: any) =>
+      (p?.answeredQuestions ?? 0) > 0 || (p?.completionPercent ?? 0) > 0,
+  );
 
   // Single creation form, reused as the first-run primary action and as the
   // secondary "Add new material" panel for returning learners.
@@ -254,27 +285,27 @@ export default function Home() {
       <div className="flex gap-2">
         <button
           className={`rounded-lg px-4 py-2 text-sm font-medium ${
-            sourceTab === 'youtube'
-              ? 'bg-white text-black'
-              : 'bg-gray-900 text-gray-300 border border-gray-700'
+            sourceTab === "youtube"
+              ? "bg-white text-black"
+              : "bg-gray-900 text-gray-300 border border-gray-700"
           }`}
-          onClick={() => setSourceTab('youtube')}
+          onClick={() => setSourceTab("youtube")}
         >
           YouTube
         </button>
         <button
           className={`rounded-lg px-4 py-2 text-sm font-medium ${
-            sourceTab === 'pdf'
-              ? 'bg-white text-black'
-              : 'bg-gray-900 text-gray-300 border border-gray-700'
+            sourceTab === "pdf"
+              ? "bg-white text-black"
+              : "bg-gray-900 text-gray-300 border border-gray-700"
           }`}
-          onClick={() => setSourceTab('pdf')}
+          onClick={() => setSourceTab("pdf")}
         >
           Upload PDF
         </button>
       </div>
 
-      {sourceTab === 'youtube' ? (
+      {sourceTab === "youtube" ? (
         <div className="space-y-1">
           <div className="flex gap-3">
             <input
@@ -288,36 +319,41 @@ export default function Home() {
               onClick={handleGenerate}
               disabled={loading || !playlistUrl}
             >
-              {loading ? 'Creating…' : CREATE_LEARNING_PATH_LABEL}
+              {loading ? "Creating…" : CREATE_LEARNING_PATH_LABEL}
             </button>
           </div>
           <p className="text-xs text-gray-500">
-            Works with playlists, watch links, youtu.be links, Shorts, and embeds.
+            Works with playlists, watch links, youtu.be links, Shorts, and
+            embeds.
           </p>
 
           <div className="pt-2 space-y-1">
-            <div className="text-sm text-gray-400">When do you want to master this topic?</div>
+            <div className="text-sm text-gray-400">
+              When do you want to master this topic?
+            </div>
             <div className="flex flex-wrap gap-2">
-              {([
-                ['none', 'No deadline'],
-                ['1w', '1 week'],
-                ['2w', '2 weeks'],
-                ['1m', '1 month'],
-                ['custom', 'Custom date'],
-              ] as const).map(([val, label]) => (
+              {(
+                [
+                  ["none", "No deadline"],
+                  ["1w", "1 week"],
+                  ["2w", "2 weeks"],
+                  ["1m", "1 month"],
+                  ["custom", "Custom date"],
+                ] as const
+              ).map(([val, label]) => (
                 <button
                   key={val}
                   onClick={() => setDeadline(val)}
                   className={`rounded-lg px-3 py-1.5 text-sm ${
                     deadline === val
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-900 text-gray-300 border border-gray-700'
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-900 text-gray-300 border border-gray-700"
                   }`}
                 >
                   {label}
                 </button>
               ))}
-              {deadline === 'custom' && (
+              {deadline === "custom" && (
                 <input
                   type="date"
                   value={customDate}
@@ -341,30 +377,32 @@ export default function Home() {
             onClick={handlePdfUpload}
             disabled={loading || !pdfFile}
           >
-            {loading ? 'Working…' : 'Upload & create path'}
+            {loading ? "Working…" : "Upload & create path"}
           </button>
         </div>
       )}
 
       {loading && (
         <p className="text-sm text-gray-400">
-          {sourceTab === 'pdf' && pdfStatus ? pdfStatus : 'Adding your course…'}
+          {sourceTab === "pdf" && pdfStatus ? pdfStatus : "Adding your course…"}
         </p>
       )}
 
       {error && (
-        <div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">{error}</div>
+        <div className="rounded-lg border border-red-500 bg-red-950 p-4 text-red-200">
+          {safeErrorMessage(error)}
+        </div>
       )}
 
       {duplicate && (
         <div className="rounded-lg border border-yellow-600 bg-yellow-950/40 p-4 text-yellow-100">
-          You already have a course from this source.{' '}
+          You already have a course from this source.{" "}
           {duplicate.courseId ? (
             <a className="underline" href={`/courses/${duplicate.courseId}`}>
-              Open {duplicate.title ?? 'the existing course'}
+              Open {duplicate.title ?? "the existing course"}
             </a>
           ) : (
-            'Check your courses below.'
+            "Check your courses below."
           )}
         </div>
       )}
@@ -375,32 +413,47 @@ export default function Home() {
     <section className={`${accentCard} p-6 space-y-5`}>
       <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1.5">
-          <div className={`${eyebrow} text-blue-300/90`}>{TODAYS_PLAN_LABEL}</div>
-          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{goal?.name}</h2>
+          <div className={`${eyebrow} text-blue-300/90`}>
+            {TODAYS_PLAN_LABEL}
+          </div>
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            {goal?.name || DASHBOARD_SUBTITLE_FALLBACK}
+          </h2>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-300">
             <span className="inline-flex items-center gap-1.5">
-              <span className="text-blue-300">●</span>~{goal?.estimatedMinutes} min today
+              <span className="text-blue-300">●</span>~{goal?.estimatedMinutes}{" "}
+              min
             </span>
             <span className="text-gray-600">·</span>
             <span>{practiceItemsLabel(goal?.taskCount ?? 0)}</span>
           </div>
-          {goal?.deadline && (
-            <div className="text-xs text-gray-400">
-              Deadline {new Date(goal.deadline.targetDate).toLocaleDateString()}
-              {goal.deadline.daysRemaining != null && (
-                <span className={goal.deadline.daysRemaining < 0 ? 'text-red-400' : ''}>
-                  {' · '}
-                  {goal.deadline.daysRemaining < 0
-                    ? 'overdue'
-                    : `${goal.deadline.daysRemaining} days left`}
-                </span>
-              )}
-              <span className={goal.deadline.onTrack ? 'text-green-400' : 'text-yellow-400'}>
-                {' · '}
-                {scheduleStatusLabel(goal.deadline.onTrack)}
-              </span>
-            </div>
-          )}
+          {(() => {
+            // Avoids the zero-day-count oddity and an "Invalid Date" render —
+            // see deadlineView() for the calm-state logic.
+            const dl = deadlineView(goal?.deadline, { started: anyStarted });
+            if (!dl) return null;
+            return (
+              <div className="text-xs text-gray-400">
+                Deadline {dl.dateLabel}
+                {dl.daysLabel && (
+                  <span className={dl.overdue ? "text-red-400" : ""}>
+                    {" · "}
+                    {dl.daysLabel}
+                  </span>
+                )}
+                {dl.statusLabel && (
+                  <span
+                    className={
+                      dl.onTrack ? "text-green-400" : "text-yellow-400"
+                    }
+                  >
+                    {" · "}
+                    {dl.statusLabel}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
         <a
           href="/session"
@@ -412,8 +465,11 @@ export default function Home() {
 
       {goal?.byCourse?.length > 1 && (
         <div className="space-y-2 border-t border-white/5 pt-4">
-          <button className="text-sm text-blue-300 hover:text-blue-200" onClick={() => setShowBreakdown((s) => !s)}>
-            {showBreakdown ? 'Hide' : WHATS_INCLUDED_LABEL}
+          <button
+            className="text-sm text-blue-300 hover:text-blue-200"
+            onClick={() => setShowBreakdown((s) => !s)}
+          >
+            {showBreakdown ? "Hide" : WHATS_INCLUDED_LABEL}
           </button>
           {showBreakdown && (
             <div className="space-y-2">
@@ -423,7 +479,9 @@ export default function Home() {
                   className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-black/20 px-4 py-2 text-sm"
                 >
                   <span className="truncate">{co.courseTitle}</span>
-                  <span className="shrink-0 text-gray-300">{practiceItemsLabel(co.taskCount)}</span>
+                  <span className="shrink-0 text-gray-300">
+                    {practiceItemsLabel(co.taskCount)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -448,21 +506,32 @@ export default function Home() {
             Curri<span className="text-blue-400">q</span>
           </h1>
           <div className="flex items-center gap-3 text-right shrink-0">
-            {userEmail && <p className="hidden text-sm text-gray-500 sm:block">{userEmail}</p>}
-            <button className={ghostLink} onClick={() => signOut({ redirectUrl: '/sign-in' })}>
+            {userEmail && (
+              <p className="hidden text-sm text-gray-500 sm:block">
+                {userEmail}
+              </p>
+            )}
+            <button
+              className={ghostLink}
+              onClick={() => signOut({ redirectUrl: "/sign-in" })}
+            >
               Sign out
             </button>
           </div>
         </div>
 
-        {mode === 'first-run' ? (
+        {mode === "first-run" ? (
           <section className="space-y-8">
             <div className="space-y-3">
-              <div className={`${eyebrow} text-blue-300/90`}>Your AI learning coach</div>
+              <div className={`${eyebrow} text-blue-300/90`}>
+                {HOME_HERO_EYEBROW}
+              </div>
               <h2 className="max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">
                 {HOME_HERO_HEADLINE}
               </h2>
-              <p className="max-w-2xl text-lg text-gray-300">{HOME_VALUE_PROP}</p>
+              <p className="max-w-2xl text-lg text-gray-300">
+                {HOME_VALUE_PROP}
+              </p>
               <p className="text-sm text-gray-500">{HOME_HERO_STEPS}</p>
             </div>
             <div className={`${primaryCard} p-6`}>{creationPanel}</div>
@@ -471,35 +540,94 @@ export default function Home() {
           <>
             {hasCourses && (hasPlan ? planSection : caughtUpSection)}
 
-            <section className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className={sectionHeading}>{YOUR_COURSES_LABEL}</h2>
-                <button className={ghostLink} onClick={loadCourses} disabled={loadingCourses}>
-                  Refresh
-                </button>
-              </div>
+            {(() => {
+              // A curated, calm grid: ready/in-progress/completed courses
+              // first, generating ones after (never dominating), failed
+              // imports moved to their own quiet section below — capped to a
+              // reasonable first screen with "Show more" for the rest.
+              const { main: mainCourses, attention: attentionCourses } =
+                partitionCoursesForDashboard(courses);
+              const { visible: displayedCourses, remaining } = visibleCourses(
+                mainCourses,
+                showAllCourses ? mainCourses.length : undefined,
+              );
+              return (
+                <>
+                  <section className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className={sectionHeading}>{YOUR_COURSES_LABEL}</h2>
+                      <button
+                        className={ghostLink}
+                        onClick={loadCourses}
+                        disabled={loadingCourses}
+                      >
+                        Refresh
+                      </button>
+                    </div>
 
-              {loadingCourses && <p className="text-gray-400">Loading courses…</p>}
+                    {loadingCourses && (
+                      <p className="text-gray-400">Loading courses…</p>
+                    )}
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                {courses.map((course) => (
-                  <CourseCard
-                    key={course.courseId}
-                    course={course}
-                    onRetry={handleRetry}
-                    retrying={retryingId === course.courseId}
-                    progress={progressByCourse[course.courseId]}
-                  />
-                ))}
-              </div>
-            </section>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {displayedCourses.map((course) => (
+                        <CourseCard
+                          key={course.courseId}
+                          course={course}
+                          onRetry={handleRetry}
+                          retrying={retryingId === course.courseId}
+                          progress={progressByCourse[course.courseId]}
+                          // One obvious next action per viewport: while the
+                          // Today's-plan card owns the primary CTA, course
+                          // cards read as quiet secondary paths.
+                          ctaEmphasis={hasPlan ? "secondary" : "primary"}
+                        />
+                      ))}
+                    </div>
+
+                    {remaining > 0 && (
+                      <button
+                        className={ghostLink}
+                        onClick={() => setShowAllCourses(true)}
+                      >
+                        {showMoreCoursesLabel(remaining)}
+                      </button>
+                    )}
+                  </section>
+
+                  {attentionCourses.length > 0 && (
+                    <section className="border-t border-white/5 pt-6">
+                      <details>
+                        <summary className="cursor-pointer text-sm text-gray-400 transition hover:text-gray-300">
+                          {ATTENTION_SECTION_LABEL} ({attentionCourses.length})
+                        </summary>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          {attentionCourses.map((course) => (
+                            <CourseCard
+                              key={course.courseId}
+                              course={course}
+                              onRetry={handleRetry}
+                              retrying={retryingId === course.courseId}
+                            />
+                          ))}
+                        </div>
+                      </details>
+                    </section>
+                  )}
+                </>
+              );
+            })()}
 
             {hasCourses && (
               <section className="border-t border-white/5 pt-8">
                 <div className={`${subtleCard} p-6 space-y-4`}>
                   <div>
-                    <h2 className="text-lg font-semibold tracking-tight">{CREATE_NEW_PATH_HEADING}</h2>
-                    <p className="mt-1 text-sm text-gray-400">{CREATE_NEW_PATH_HELPER}</p>
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      {CREATE_NEW_PATH_HEADING}
+                    </h2>
+                    <p className="mt-1 text-sm text-gray-400">
+                      {CREATE_NEW_PATH_HELPER}
+                    </p>
                   </div>
                   {creationPanel}
                 </div>

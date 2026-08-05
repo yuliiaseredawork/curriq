@@ -25,26 +25,34 @@ export function learningProgressView(input: {
     return {
       started: false,
       pct: 0,
-      headline: 'Ready when you are',
-      status: 'Not started yet — begin with Chapter 1',
+      headline: "Ready when you are",
+      status: "Not started yet — begin with Chapter 1",
     };
   }
 
   // Range-safe single status (no per-band wording to maintain).
-  const status = pct >= 100 ? 'Course complete' : 'In progress';
+  const status = pct >= 100 ? "Course complete" : "In progress";
   return { started: true, pct, headline: `${pct}%`, status };
 }
 
 // Plain-language labels for the chapter-progress enum. Each carries a text label
 // and a shape glyph so status is never conveyed by color alone.
-export const CHAPTER_STATUS_LABELS: Record<string, { text: string; icon: string }> = {
-  NOT_STARTED: { text: 'Not started yet', icon: '○' },
-  IN_PROGRESS: { text: 'In progress', icon: '◐' },
-  COMPLETED: { text: 'Completed', icon: '●' },
+export const CHAPTER_STATUS_LABELS: Record<
+  string,
+  { text: string; icon: string }
+> = {
+  NOT_STARTED: { text: "Not started yet", icon: "○" },
+  IN_PROGRESS: { text: "In progress", icon: "◐" },
+  COMPLETED: { text: "Completed", icon: "●" },
 };
 
-export function chapterStatusLabel(status?: string | null): { text: string; icon: string } {
-  return CHAPTER_STATUS_LABELS[status ?? ''] ?? CHAPTER_STATUS_LABELS.NOT_STARTED;
+export function chapterStatusLabel(status?: string | null): {
+  text: string;
+  icon: string;
+} {
+  return (
+    CHAPTER_STATUS_LABELS[status ?? ""] ?? CHAPTER_STATUS_LABELS.NOT_STARTED
+  );
 }
 
 /** Neutral session progress, e.g. "1 of 20" (no internal task vocabulary). */
@@ -56,22 +64,43 @@ export function sessionProgressLabel(index: number, total: number): string {
 // "still building" UI (non-clickable card + spinner); `terminal` (READY/FAILED)
 // is when polling can stop. Display-only — the raw enum is unchanged in
 // code/telemetry. FAILED keeps its own dedicated UI, so no label is needed here.
-export type CourseStatusView = { generating: boolean; terminal: boolean; label: string };
+export type CourseStatusView = {
+  generating: boolean;
+  terminal: boolean;
+  label: string;
+};
 
 export function courseStatusLabel(status?: string | null): CourseStatusView {
   switch (status) {
-    case 'READY':
-      return { generating: false, terminal: true, label: 'Ready' };
-    case 'FAILED':
-      return { generating: false, terminal: true, label: 'Couldn’t generate' };
-    case 'CREATED':
-    case 'INGESTING':
-    case 'PROCESSING':
-    case 'OUTLINING':
-      return { generating: true, terminal: false, label: 'Generating…' };
+    case "READY":
+      return { generating: false, terminal: true, label: "Ready" };
+    case "FAILED":
+      return { generating: false, terminal: true, label: "Couldn’t finish" };
+    // Stage-aware progress labels so a building course explains what's
+    // happening instead of a dead "Generating…".
+    case "CREATED":
+      return { generating: true, terminal: false, label: "Queued…" };
+    case "INGESTING":
+      return {
+        generating: true,
+        terminal: false,
+        label: "Reading the source…",
+      };
+    case "PROCESSING":
+      return {
+        generating: true,
+        terminal: false,
+        label: "Analyzing the content…",
+      };
+    case "OUTLINING":
+      return {
+        generating: true,
+        terminal: false,
+        label: "Building your learning path…",
+      };
     default:
       // Unknown/missing status: treat as still working (never a dead link).
-      return { generating: true, terminal: false, label: 'Generating…' };
+      return { generating: true, terminal: false, label: "Setting up…" };
   }
 }
 
@@ -82,34 +111,118 @@ export function isCoursePending(status?: string | null): boolean {
 
 /** Primary learning CTA copy: invite into a new course vs. resume one in progress. */
 export function primaryCtaLabel(started: boolean): string {
-  return started ? 'Continue learning' : 'Start learning';
+  return started ? "Continue learning" : "Start learning";
 }
 
 // Course card CTA: a READY card opens the course hub (the learning path), it
 // does NOT jump straight into a session.
-export const START_COURSE_LABEL = 'Start course';
+export const START_COURSE_LABEL = "Start course";
 
 // State-aware course-card view. A card stays calm and informative: one subtle
 // status line under the title + a CTA that invites ("Start course") or resumes
 // ("Continue"). Progress is optional — without it a READY card reads "Learning
 // path ready". Display-only; no internal metadata leaks.
-export type CourseCardView = { started: boolean; ctaLabel: string; statusLine: string };
+export type CourseCardView = {
+  started: boolean;
+  ctaLabel: string;
+  statusLine: string;
+};
 
-export function courseCardView(progress?: {
-  completionPercent?: number | null;
-  answeredQuestions?: number | null;
-  totalQuestions?: number | null;
-} | null): CourseCardView {
-  const pct = Math.max(0, Math.min(100, Math.round(progress?.completionPercent ?? 0)));
+export function courseCardView(
+  progress?: {
+    completionPercent?: number | null;
+    answeredQuestions?: number | null;
+    totalQuestions?: number | null;
+  } | null,
+): CourseCardView {
+  const pct = Math.max(
+    0,
+    Math.min(100, Math.round(progress?.completionPercent ?? 0)),
+  );
   const answered = progress?.answeredQuestions ?? 0;
   const total = progress?.totalQuestions ?? 0;
   const started = pct > 0 || answered > 0;
   if (!started) {
-    return { started: false, ctaLabel: START_COURSE_LABEL, statusLine: 'Learning path ready' };
+    return {
+      started: false,
+      ctaLabel: START_COURSE_LABEL,
+      statusLine: "Learning path ready",
+    };
+  }
+  const completed = pct >= 100 || (total > 0 && answered >= total);
+  if (completed) {
+    return { started: true, ctaLabel: "Review", statusLine: "Completed" };
   }
   const statusLine =
-    pct > 0 ? `${pct}% in progress` : total > 0 ? `${answered} / ${total} done` : 'In progress';
-  return { started: true, ctaLabel: 'Continue', statusLine };
+    pct > 0
+      ? `${pct}% in progress`
+      : total > 0
+        ? `${answered} / ${total} done`
+        : "In progress";
+  return { started: true, ctaLabel: "Continue", statusLine };
+}
+
+// --- Dashboard course grid: curated + capped (display-only) ------------------
+// A pitch-safe grid prioritizes healthy courses and never lets failed imports
+// or a pile of "generating" cards dominate the first screen.
+
+export type DashboardCourse = { courseId: string; status?: string | null };
+
+/** Split courses into the main grid (ready/started/generating, healthy-first)
+ *  and a separate "needs attention" list (failed imports). Stable order within
+ *  each group — only the grouping/ordering changes, nothing is dropped. */
+export function partitionCoursesForDashboard<T extends DashboardCourse>(
+  courses: T[],
+): { main: T[]; attention: T[] } {
+  const attention = courses.filter((c) => c.status === "FAILED");
+  const main = courses
+    .filter((c) => c.status !== "FAILED")
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(isCoursePending(a.status)) - Number(isCoursePending(b.status)),
+    );
+  return { main, attention };
+}
+
+export const DEFAULT_VISIBLE_COURSES = 6;
+
+/** First `limit` items + how many remain, for a "Show more" control. Never
+ *  drops data — the rest is always one click away. */
+export function visibleCourses<T>(
+  courses: T[],
+  limit: number = DEFAULT_VISIBLE_COURSES,
+): { visible: T[]; remaining: number } {
+  if (courses.length <= limit) return { visible: courses, remaining: 0 };
+  return {
+    visible: courses.slice(0, limit),
+    remaining: courses.length - limit,
+  };
+}
+
+export function showMoreCoursesLabel(remaining: number): string {
+  return `Show ${remaining} more course${remaining === 1 ? "" : "s"}`;
+}
+
+// --- Failed imports: a calm, separate "needs attention" section --------------
+export const ATTENTION_SECTION_LABEL = "Imports that need attention";
+export const IMPORT_NEEDS_ATTENTION_BADGE = "Needs attention";
+export const IMPORT_FAILED_TITLE = "We couldn’t finish this import.";
+export const IMPORT_FAILED_BODY = "Retry when you’re ready.";
+export const IMPORT_RETRY_LABEL = "Retry";
+
+// The backend's generic fallback reason (see backend/src/courses/failure-reason.ts)
+// reads as alarming for a pitch demo; remapped here to calmer phrasing. Specific
+// stored reasons (e.g. "couldn't find usable transcripts") are already plain-
+// language and pass through unchanged.
+const GENERIC_IMPORT_FAILURE_RE = /course generation failed/i;
+
+/** Calm, demo-safe body text for a failed-import card. Never echoes raw/scary
+ *  backend text — falls back to one friendly sentence. */
+export function importFailureMessage(errorMessage?: string | null): string {
+  const msg = (errorMessage ?? "").trim();
+  if (!msg || GENERIC_IMPORT_FAILURE_RE.test(msg)) return IMPORT_FAILED_TITLE;
+  return msg;
 }
 
 // Home "today's plan" breakdown: learner-facing label + rows.
@@ -117,21 +230,21 @@ export const WHATS_INCLUDED_LABEL = "What's included today";
 
 /** "20 practice items" / "1 practice item" (no internal task vocabulary). */
 export function practiceItemsLabel(count: number): string {
-  return `${count} practice item${count === 1 ? '' : 's'}`;
+  return `${count} practice item${count === 1 ? "" : "s"}`;
 }
 
 /** Hide 0-task courses from the breakdown — unless every course is at 0. */
-export function visibleBreakdownCourses<T extends { taskCount?: number | null }>(
-  courses: T[],
-): T[] {
+export function visibleBreakdownCourses<
+  T extends { taskCount?: number | null },
+>(courses: T[]): T[] {
   const withTasks = courses.filter((c) => (c.taskCount ?? 0) > 0);
   return withTasks.length > 0 ? withTasks : courses;
 }
 
 // "Add new material" → a premium, secondary "create" card.
-export const CREATE_NEW_PATH_HEADING = 'Create a new learning path';
+export const CREATE_NEW_PATH_HEADING = "Create a new learning path";
 export const CREATE_NEW_PATH_HELPER =
-  'Paste a video, playlist, or PDF. Curriq turns it into chapters, practice, and review.';
+  "Paste a video, playlist, or PDF. Curriq turns it into chapters, practice, and review.";
 
 // Intro for a chapter's outcome bullets (rendered from the generated
 // learning_objectives), so chapters read as "what you'll be able to do" rather
@@ -152,13 +265,13 @@ type SessionTaskLike = {
 
 /** Heading for a question task: the concept for reviews, a warm label for new ones. */
 export function questionHeading(task: SessionTaskLike): string {
-  if (task.kind === 'review' && task.conceptTitle) return task.conceptTitle;
-  return 'Check your understanding';
+  if (task.kind === "review" && task.conceptTitle) return task.conceptTitle;
+  return "Check your understanding";
 }
 
 /** Short eyebrow above the heading. */
 export function questionEyebrow(task: SessionTaskLike): string {
-  return task.kind === 'review' ? 'Review' : 'Practice';
+  return task.kind === "review" ? "Review" : "Practice";
 }
 
 /** A single readable focus concept (the first tag), or null if unusable. */
@@ -169,16 +282,16 @@ export function questionFocus(task: SessionTaskLike): string | null {
   return raw
     .split(/\s+/)
     .map((w) => (/[A-Z]/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
-    .join(' ');
+    .join(" ");
 }
 
 // Whitelist: only known, learner-safe planner reasons become coaching copy.
 // Anything else (flashcard/internal/unknown reasons) renders nothing.
 const TASK_CONTEXT_COPY: Record<string, string> = {
-  'At risk of forgetting': "You're starting to forget this — let's lock it in.",
-  'Weak area': "Let's strengthen this weak spot.",
-  'Due before your deadline': 'This helps keep you on track for your deadline.',
-  'Finish the chapter you started': 'Picking up where you left off.',
+  "At risk of forgetting": "You're starting to forget this — let's lock it in.",
+  "Weak area": "Let's strengthen this weak spot.",
+  "Due before your deadline": "This helps keep you on track for your deadline.",
+  "Finish the chapter you started": "Picking up where you left off.",
 };
 
 /** Optional "why this matters" line for a task, or null when not whitelisted. */
@@ -198,12 +311,12 @@ export function quizBadge(
   started: boolean,
 ): { text: string } | null {
   switch (quizState) {
-    case 'GENERATING':
-      return { text: 'Preparing…' };
-    case 'FAILED':
-      return { text: 'Couldn’t prepare practice' };
-    case 'READY':
-      return started ? { text: 'Ready' } : null;
+    case "GENERATING":
+      return { text: "Preparing…" };
+    case "FAILED":
+      return { text: "Couldn’t prepare practice" };
+    case "READY":
+      return started ? { text: "Ready" } : null;
     default: // NOT_STARTED / unknown
       return null;
   }
@@ -217,16 +330,17 @@ export function chapterQuestionsLabel(input: {
   total?: number | null;
 }): string {
   const total = input.total ?? 0;
-  if (total <= 0) return 'Questions are being prepared';
-  if (!input.started) return `${total} practice question${total === 1 ? '' : 's'}`;
+  if (total <= 0) return "Questions are being prepared";
+  if (!input.started)
+    return `${total} practice question${total === 1 ? "" : "s"}`;
   return `${input.answered ?? 0} / ${total} questions`;
 }
 
 /** Chapter CTA label by progress status. "Start here" replaces "Study chapter". */
 export function chapterCtaLabel(chapterStatus?: string | null): string {
-  if (chapterStatus === 'COMPLETED') return 'Review chapter';
-  if (chapterStatus === 'IN_PROGRESS') return 'Continue chapter';
-  return 'Start here';
+  if (chapterStatus === "COMPLETED") return "Review chapter";
+  if (chapterStatus === "IN_PROGRESS") return "Continue chapter";
+  return "Start here";
 }
 
 // --- Progressive disclosure (reduce on-screen text density) ------------------
@@ -235,12 +349,12 @@ export function chapterCtaLabel(chapterStatus?: string | null): string {
 export const DEFAULT_VISIBLE_OBJECTIVES = 2;
 export const DEFAULT_VISIBLE_FOCUS_AREAS = 2;
 
-export const SHOW_MORE_LABEL = 'Show more';
-export const SHOW_LESS_LABEL = 'Show less';
-export const SHOW_DETAILS_LABEL = 'Show details';
-export const HIDE_DETAILS_LABEL = 'Hide details';
-export const SHOW_MORE_FOCUS_LABEL = 'Show more focus areas';
-export const SHOW_FEWER_FOCUS_LABEL = 'Show fewer';
+export const SHOW_MORE_LABEL = "Show more";
+export const SHOW_LESS_LABEL = "Show less";
+export const SHOW_DETAILS_LABEL = "Show details";
+export const HIDE_DETAILS_LABEL = "Hide details";
+export const SHOW_MORE_FOCUS_LABEL = "Show more focus areas";
+export const SHOW_FEWER_FOCUS_LABEL = "Show fewer";
 
 /** Toggle label for a show-more / show-less control. */
 export function showMoreLabel(expanded: boolean): string {
@@ -258,35 +372,49 @@ export function focusListToggleLabel(expanded: boolean): string {
 }
 
 // --- Home page copy + mode (display-only) -----------------------------------
-export const HOME_HERO_HEADLINE = 'Turn any video or PDF into a guided learning path.';
+// Shared across the landing page, sign-in first touch, and the first-run
+// dashboard hero so the pitch never drifts between surfaces. Positioning is
+// the interview-prep wedge: retention for engineering interviews — generic
+// ingestion stays a feature, not the headline.
+export const HOME_HERO_EYEBROW = "Interview prep that sticks";
+export const HOME_HERO_HEADLINE =
+  "Don’t just watch system design videos. Retain them for the interview.";
 export const HOME_VALUE_PROP =
-  'Curriq tells you what to study next, checks your understanding, and brings weak concepts back before you forget them.';
+  "Curriq turns videos and PDFs into spaced-repetition practice — it finds the concepts you mix up, schedules targeted review, and brings them back before your interview.";
 export const HOME_HERO_STEPS =
-  'Add content → get a learning path → practice with grounded questions → review weak concepts.';
-export const TODAYS_PLAN_LABEL = "Today's learning plan";
-export const CONTINUE_LEARNING_LABEL = 'Continue learning';
-export const YOUR_COURSES_LABEL = 'Your courses';
-export const CREATE_LEARNING_PATH_LABEL = 'Create learning path';
+  "Add a video or PDF → practice with grounded questions → review what you’re about to forget.";
+export const TODAYS_PLAN_LABEL = "Today's plan";
+export const DASHBOARD_SUBTITLE_FALLBACK = "Continue where you left off";
+export const CONTINUE_LEARNING_LABEL = "Continue learning";
+export const YOUR_COURSES_LABEL = "Your courses";
+export const CREATE_LEARNING_PATH_LABEL = "Create learning path";
 export const CAUGHT_UP_TITLE = "You're caught up for now.";
-export const CAUGHT_UP_BODY = 'Review a course or add new material when you’re ready.';
+export const CAUGHT_UP_BODY =
+  "Review a course or add new material when you’re ready.";
 
 /**
  * Home layout mode. First-run (welcoming hero + creation) only once we know the
  * learner has zero courses; while loading we assume the returning layout so the
  * hero never flashes mid-load.
  */
-export function homeMode(input: { hasCourses: boolean; loadingCourses: boolean }): 'first-run' | 'returning' {
-  if (input.loadingCourses) return 'returning';
-  return input.hasCourses ? 'returning' : 'first-run';
+export function homeMode(input: {
+  hasCourses: boolean;
+  loadingCourses: boolean;
+}): "first-run" | "returning" {
+  if (input.loadingCourses) return "returning";
+  return input.hasCourses ? "returning" : "first-run";
 }
 
 /** Friendly post-rating confirmation, e.g. "Marked as hard · next review tomorrow". */
-export function flashcardRatedLine(rating: string, intervalDays: number): string {
+export function flashcardRatedLine(
+  rating: string,
+  intervalDays: number,
+): string {
   const when =
     intervalDays <= 0
-      ? 'later today'
+      ? "later today"
       : intervalDays === 1
-        ? 'tomorrow'
+        ? "tomorrow"
         : `in ${intervalDays} days`;
   return `Marked as ${String(rating).toLowerCase()} · next review ${when}`;
 }
@@ -297,28 +425,31 @@ export function flashcardRatedLine(rating: string, intervalDays: number): string
 // freeform cards have none and render as one safe block. The rating prompt
 // frames the SM-2 rating as one clear memory judgement before Again/Hard/Good/Easy.
 
-export const FLASHCARD_RATING_PROMPT = 'How well did you remember this?';
-export const FLASHCARD_ANSWER_LABEL = 'Answer';
-export const FLASHCARD_WHY_LABEL = 'Why it matters';
-export const FLASHCARD_WATCH_OUT_LABEL = 'Watch out';
-export const FLASHCARD_SOURCE_NOTE_LABEL = 'Source note';
+export const FLASHCARD_RATING_PROMPT = "How well did you remember this?";
+export const FLASHCARD_ANSWER_LABEL = "Answer";
+export const FLASHCARD_WHY_LABEL = "Why it matters";
+export const FLASHCARD_WATCH_OUT_LABEL = "Watch out";
+export const FLASHCARD_SOURCE_NOTE_LABEL = "Source note";
 // Calm review framing for the flashcard front (replaces a loud uppercase
 // "FLASHCARD · <long concept>" header) + a warm post-rating confirmation.
-export const FLASHCARD_REVIEW_EYEBROW = 'Review';
-export const FLASHCARD_SAVED_LABEL = 'Saved for review';
+export const FLASHCARD_REVIEW_EYEBROW = "Review";
+export const FLASHCARD_SAVED_LABEL = "Saved for review";
 
 /**
  * A concise one-line takeaway from a longer feedback/explanation string: the
  * first sentence, trimmed to ~maxLen with an ellipsis. Display-only — used to
  * surface a short "Takeaway" before any detailed block. Returns null when empty.
  */
-export function firstSentence(text: string | null | undefined, maxLen = 160): string | null {
-  const t = (text ?? '').trim();
+export function firstSentence(
+  text: string | null | undefined,
+  maxLen = 160,
+): string | null {
+  const t = (text ?? "").trim();
   if (!t) return null;
   // First sentence boundary (., !, ?) followed by whitespace; else the whole text.
   const m = t.match(/^[\s\S]*?[.!?](?=\s)/);
   let s = (m ? m[0] : t).trim();
-  if (s.length > maxLen) s = `${s.slice(0, maxLen).replace(/\s+\S*$/, '')}…`;
+  if (s.length > maxLen) s = `${s.slice(0, maxLen).replace(/\s+\S*$/, "")}…`;
   return s || null;
 }
 
@@ -334,12 +465,12 @@ const CORRECT_ANSWER_CLAUSE_RE =
 
 /** Plain status word for an answer result (centralized so it never drifts). */
 export function feedbackStatusLabel(correct: boolean): string {
-  return correct ? 'Correct' : 'Not quite';
+  return correct ? "Correct" : "Not quite";
 }
 
 /** Eyebrow above the one-line takeaway: warmer for a correct answer. */
 export function feedbackEyebrow(correct: boolean): string {
-  return correct ? 'Remember this' : 'Takeaway';
+  return correct ? "Remember this" : "Takeaway";
 }
 
 // Internal/backend wording that must never reach a learner. Order matters:
@@ -347,11 +478,14 @@ export function feedbackEyebrow(correct: boolean): string {
 // retrieval pipeline.
 const INTERNAL_WORDING_REPLACEMENTS: Array<[RegExp, string]> = [
   // Keep the article's original case ("The chunk states" → "The material states").
-  [/\b(the)\s+(?:source\s+)?chunks?\s+(states?|says?|mentions?|notes?|shows?|describes?|explains?)\b/gi, '$1 material $2'],
-  [/\baccording to the\s+(?:source\s+)?chunks?\b/gi, 'from the lesson'],
-  [/\bthe model (?:says|states|notes)\b/gi, 'the material says'],
-  [/\b(?:the\s+)?source\s+chunks?\b/gi, 'the source material'],
-  [/\bchunks?\b/gi, 'the source material'],
+  [
+    /\b(the)\s+(?:source\s+)?chunks?\s+(states?|says?|mentions?|notes?|shows?|describes?|explains?)\b/gi,
+    "$1 material $2",
+  ],
+  [/\baccording to the\s+(?:source\s+)?chunks?\b/gi, "from the lesson"],
+  [/\bthe model (?:says|states|notes)\b/gi, "the material says"],
+  [/\b(?:the\s+)?source\s+chunks?\b/gi, "the source material"],
+  [/\bchunks?\b/gi, "the source material"],
 ];
 
 /**
@@ -361,9 +495,10 @@ const INTERNAL_WORDING_REPLACEMENTS: Array<[RegExp, string]> = [
  * on text that has none). Never throws.
  */
 export function scrubInternalWording(text: string | null | undefined): string {
-  let t = (text ?? '').toString();
-  for (const [re, repl] of INTERNAL_WORDING_REPLACEMENTS) t = t.replace(re, repl);
-  return t.replace(/\s{2,}/g, ' ').trim();
+  let t = (text ?? "").toString();
+  for (const [re, repl] of INTERNAL_WORDING_REPLACEMENTS)
+    t = t.replace(re, repl);
+  return t.replace(/\s{2,}/g, " ").trim();
 }
 
 /**
@@ -373,9 +508,13 @@ export function scrubInternalWording(text: string | null | undefined): string {
  * takeaway is the actual learning point, never an echo of the headline. Null
  * when nothing useful remains.
  */
-export function feedbackTakeaway(explanation: string | null | undefined): string | null {
-  let s = scrubInternalWording(explanation).replace(LEADING_VERDICT_RE, '').trim();
-  s = s.replace(CORRECT_ANSWER_CLAUSE_RE, '').trim();
+export function feedbackTakeaway(
+  explanation: string | null | undefined,
+): string | null {
+  let s = scrubInternalWording(explanation)
+    .replace(LEADING_VERDICT_RE, "")
+    .trim();
+  s = s.replace(CORRECT_ANSWER_CLAUSE_RE, "").trim();
   return firstSentence(s);
 }
 
@@ -384,11 +523,15 @@ export function feedbackTakeaway(explanation: string | null | undefined): string
  * first sentence (already shown as the takeaway), so the two never duplicate.
  * Null when there's nothing beyond the takeaway.
  */
-export function feedbackDetail(explanation: string | null | undefined): string | null {
-  let s = scrubInternalWording(explanation).replace(LEADING_VERDICT_RE, '').trim();
-  s = s.replace(CORRECT_ANSWER_CLAUSE_RE, '').trim();
+export function feedbackDetail(
+  explanation: string | null | undefined,
+): string | null {
+  let s = scrubInternalWording(explanation)
+    .replace(LEADING_VERDICT_RE, "")
+    .trim();
+  s = s.replace(CORRECT_ANSWER_CLAUSE_RE, "").trim();
   const m = s.match(/^[\s\S]*?[.!?](?=\s)/);
-  const rest = (m ? s.slice(m[0].length) : '').trim();
+  const rest = (m ? s.slice(m[0].length) : "").trim();
   return rest || null;
 }
 
@@ -401,26 +544,62 @@ export function correctAnswerLabel(
   correctAnswer: string | null | undefined,
   choices?: string[] | null,
 ): string | null {
-  const ans = (correctAnswer ?? '').trim();
+  const ans = (correctAnswer ?? "").trim();
   if (!ans) return null;
   if (choices?.length) {
-    const idx = choices.findIndex((c) => (c ?? '').trim().toLowerCase() === ans.toLowerCase());
+    const idx = choices.findIndex(
+      (c) => (c ?? "").trim().toLowerCase() === ans.toLowerCase(),
+    );
     if (idx >= 0) return `${String.fromCharCode(65 + idx)}. ${ans}`;
   }
   return ans;
 }
 
 /** Optional "why your answer was tempting": the grader's "(Common mix-up: …)". */
-export function mixUpNote(explanation: string | null | undefined): string | null {
-  const m = (explanation ?? '').match(/\(common mix-?up:\s*([^)]+)\)/i);
+export function mixUpNote(
+  explanation: string | null | undefined,
+): string | null {
+  const m = (explanation ?? "").match(/\(common mix-?up:\s*([^)]+)\)/i);
   return m ? m[1].trim() : null;
 }
 
 /** Hard-truncate coach text at a word boundary with an ellipsis. Defensive. */
-export function truncateCoachText(text: string | null | undefined, maxLength = 200): string {
-  const t = (text ?? '').trim();
+export function truncateCoachText(
+  text: string | null | undefined,
+  maxLength = 200,
+): string {
+  const t = (text ?? "").trim();
   if (t.length <= maxLength) return t;
-  return `${t.slice(0, maxLength).replace(/\s+\S*$/, '')}…`;
+  return `${t.slice(0, maxLength).replace(/\s+\S*$/, "")}…`;
+}
+
+// --- Render-safe error text (defensive, last line of defense) ---------------
+// api.ts throws `new Error(await res.text() || ...)` on a failed request, so an
+// unhandled 500 can hand the UI raw backend text — a JSON body, a stack trace,
+// an "INTERNAL_ERROR" code. None of that may ever reach the learner verbatim.
+const RAW_ERROR_PATTERNS: RegExp[] = [
+  /internal_error/i,
+  /^\s*[{[]/, // looks like a JSON payload
+  /\bat\s+\S+:\d+:\d+/, // a stack-trace frame ("at .../file.js:12:3")
+  /\b(type|reference|syntax)error\b/i,
+  /\bundefined\b|\bnull\b/i,
+];
+const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
+
+/**
+ * Render-safe error text for any `{error}` block: short, plain-language
+ * messages pass through unchanged; anything that looks like raw/internal
+ * backend output (JSON, a stack trace, an error-class name, bare "null"/
+ * "undefined", or anything unreasonably long) collapses to one calm, generic
+ * sentence. Defensive only — never throws.
+ */
+export function safeErrorMessage(message: string | null | undefined): string {
+  const msg = (message ?? "").trim();
+  if (!msg) return GENERIC_ERROR_MESSAGE;
+  if (msg.length > 200) return GENERIC_ERROR_MESSAGE;
+  if (RAW_ERROR_PATTERNS.some((re) => re.test(msg)))
+    return GENERIC_ERROR_MESSAGE;
+  return msg;
 }
 
 // A flashcard back, split into the sections we know how to present. Any field
@@ -434,17 +613,18 @@ export type ParsedFlashcardBack = {
   fallback: string | null;
 };
 
-type BackField = 'answer' | 'why' | 'watchOut' | 'sourceNote';
+type BackField = "answer" | "why" | "watchOut" | "sourceNote";
 
 // Recognized leading labels (each must be followed by a colon). Deliberately
 // small and literal — no fuzzy NLP — so "Why does X happen" is never mistaken
 // for a "Why" label.
-const FLASHCARD_BACK_FIELD_LABELS: Array<{ field: BackField; match: RegExp }> = [
-  { field: 'answer', match: /^answer$/i },
-  { field: 'why', match: /^(why it matters|why)$/i },
-  { field: 'watchOut', match: /^(watch[ -]?out|trap|gotcha)$/i },
-  { field: 'sourceNote', match: /^(source note|source)$/i },
-];
+const FLASHCARD_BACK_FIELD_LABELS: Array<{ field: BackField; match: RegExp }> =
+  [
+    { field: "answer", match: /^answer$/i },
+    { field: "why", match: /^(why it matters|why)$/i },
+    { field: "watchOut", match: /^(watch[ -]?out|trap|gotcha)$/i },
+    { field: "sourceNote", match: /^(source note|source)$/i },
+  ];
 
 /**
  * Parse a flashcard back into labeled sections, safely. Detects simple
@@ -453,7 +633,9 @@ const FLASHCARD_BACK_FIELD_LABELS: Array<{ field: BackField; match: RegExp }> = 
  * Leading text before the first label becomes the answer when none was labeled.
  * Pure, display-only — never mutates stored text and never drops content.
  */
-export function parseFlashcardBack(text: string | null | undefined): ParsedFlashcardBack {
+export function parseFlashcardBack(
+  text: string | null | undefined,
+): ParsedFlashcardBack {
   const empty: ParsedFlashcardBack = {
     answer: null,
     why: null,
@@ -461,10 +643,15 @@ export function parseFlashcardBack(text: string | null | undefined): ParsedFlash
     sourceNote: null,
     fallback: null,
   };
-  const raw = (text ?? '').trim();
+  const raw = (text ?? "").trim();
   if (!raw) return empty;
 
-  const buckets: Record<BackField, string[]> = { answer: [], why: [], watchOut: [], sourceNote: [] };
+  const buckets: Record<BackField, string[]> = {
+    answer: [],
+    why: [],
+    watchOut: [],
+    sourceNote: [],
+  };
   const preamble: string[] = [];
   let current: BackField | null = null;
   let sawLabel = false;
@@ -473,15 +660,17 @@ export function parseFlashcardBack(text: string | null | undefined): ParsedFlash
     const line = rawLine.trim();
     if (!line) {
       // Preserve a paragraph break inside the section we're collecting.
-      (current ? buckets[current] : preamble).push('');
+      (current ? buckets[current] : preamble).push("");
       continue;
     }
     const m = line.match(/^([A-Za-z][A-Za-z -]{1,18}?):\s*(.*)$/);
-    const matched = m ? FLASHCARD_BACK_FIELD_LABELS.find((l) => l.match.test(m[1]!.trim())) : undefined;
+    const matched = m
+      ? FLASHCARD_BACK_FIELD_LABELS.find((l) => l.match.test(m[1]!.trim()))
+      : undefined;
     if (matched) {
       sawLabel = true;
       current = matched.field;
-      const rest = (m![2] ?? '').trim();
+      const rest = (m![2] ?? "").trim();
       if (rest) buckets[current].push(rest);
     } else if (current) {
       buckets[current].push(line);
@@ -494,7 +683,10 @@ export function parseFlashcardBack(text: string | null | undefined): ParsedFlash
   if (!sawLabel) return { ...empty, fallback: raw };
 
   const join = (lines: string[]): string | null => {
-    const s = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    const s = lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
     return s || null;
   };
 
@@ -521,20 +713,24 @@ export function parseFlashcardBack(text: string | null | undefined): ParsedFlash
 // the chapters as the recommended path; once started, it's a resume point.
 export type CourseHero = { title: string; subtitle: string; ctaLabel: string };
 
-export function courseHero(input: { started: boolean; hasChapters: boolean }): CourseHero {
+export function courseHero(input: {
+  started: boolean;
+  hasChapters: boolean;
+}): CourseHero {
   if (input.started) {
     return {
-      title: 'Continue learning',
-      subtitle: 'Pick up where you left off — Curriq will coach you through what’s next.',
-      ctaLabel: 'Continue learning',
+      title: "Continue learning",
+      subtitle:
+        "Pick up where you left off — Curriq will coach you through what’s next.",
+      ctaLabel: "Continue learning",
     };
   }
   return {
-    title: 'Your learning path is ready',
+    title: "Your learning path is ready",
     subtitle: input.hasChapters
-      ? 'The chapters below are your recommended path. Curriq will coach you through them, one step at a time.'
-      : 'Curriq will coach you through this course, one step at a time.',
-    ctaLabel: 'Start learning',
+      ? "The chapters below are your recommended path. Curriq will coach you through them, one step at a time."
+      : "Curriq will coach you through this course, one step at a time.",
+    ctaLabel: "Start learning",
   };
 }
 
@@ -545,9 +741,9 @@ export function courseHero(input: { started: boolean; hasChapters: boolean }): C
 //               generating; offer a way back to the course.
 //  - caught-up: an all-courses session with genuinely nothing due.
 export type SessionEmptyState =
-  | { kind: 'complete'; title: string; body: string; backHref?: string }
-  | { kind: 'preparing'; title: string; body: string; backHref: string }
-  | { kind: 'caught-up'; title: string; body: string };
+  | { kind: "complete"; title: string; body: string; backHref?: string }
+  | { kind: "preparing"; title: string; body: string; backHref: string }
+  | { kind: "caught-up"; title: string; body: string };
 
 export function sessionEmptyState(input: {
   reviewed: number;
@@ -561,16 +757,19 @@ export function sessionEmptyState(input: {
     // Quiz isn't ready yet (and nothing answered this session) → "preparing".
     if (!input.chapterReady && input.reviewed === 0) {
       return {
-        kind: 'preparing',
-        title: 'Getting this chapter ready 🛠️',
-        body: 'Chapter practice is being prepared. Give it a moment, then reload.',
+        kind: "preparing",
+        title: "Getting this chapter ready 🛠️",
+        body: "Chapter practice is being prepared. Give it a moment, then reload.",
         backHref,
       };
     }
     // Questions exist but none left to do (finished now or earlier).
     return {
-      kind: 'complete',
-      title: input.reviewed > 0 ? 'Chapter practice complete 🎉' : 'All done here 🎉',
+      kind: "complete",
+      title:
+        input.reviewed > 0
+          ? "Chapter practice complete 🎉"
+          : "All done here 🎉",
       body: "You've finished this chapter's practice for now.",
       backHref,
     };
@@ -579,54 +778,116 @@ export function sessionEmptyState(input: {
   if (input.reviewed > 0) {
     const n = input.reviewed;
     return {
-      kind: 'complete',
-      title: 'Session complete 🎉',
-      body: `You reviewed ${n} item${n === 1 ? '' : 's'}.`,
+      kind: "complete",
+      title: "Session complete 🎉",
+      body: `You reviewed ${n} item${n === 1 ? "" : "s"}.`,
     };
   }
   if (input.scopeCourseId) {
     return {
-      kind: 'preparing',
-      title: 'Setting up your session 🛠️',
-      body: 'Your course is still getting ready. New questions appear here as they finish generating — give it a moment, then reload.',
+      kind: "preparing",
+      title: "Setting up your session 🛠️",
+      body: "Your course is still getting ready. New questions appear here as they finish generating — give it a moment, then reload.",
       backHref: `/courses/${input.scopeCourseId}`,
     };
   }
   return {
-    kind: 'caught-up',
-    title: 'All caught up 🎉',
-    body: 'Nothing is due right now. Check back later.',
+    kind: "caught-up",
+    title: "All caught up 🎉",
+    body: "Nothing is due right now. Check back later.",
   };
 }
 
 // Focus-practice copy (coached, mirrors the main session).
-export const FOCUS_EYEBROW = 'Focus practice';
-export const FOCUS_CONTEXT = 'Strengthen this weak spot';
+export const FOCUS_EYEBROW = "Focus practice";
+export const FOCUS_CONTEXT = "Strengthen this weak spot";
 
 // Shared button styles so every primary action looks the same. Primary actions
 // read as blue; secondary actions are quiet/bordered. Padding/sizing is added
 // per call site (these cover color/shape/font/disabled only) to avoid
 // conflicting Tailwind padding utilities.
 export const primaryButtonClass =
-  'inline-flex items-center justify-center rounded-xl bg-blue-500 font-medium text-white shadow-sm shadow-blue-900/40 transition hover:bg-blue-400 active:scale-[0.99] disabled:opacity-50 disabled:active:scale-100';
+  "inline-flex items-center justify-center rounded-xl bg-blue-500 font-medium text-white shadow-sm shadow-blue-900/40 transition hover:bg-blue-400 active:scale-[0.99] disabled:opacity-50 disabled:active:scale-100";
 export const secondaryButtonClass =
-  'inline-flex items-center justify-center rounded-xl border border-white/10 font-medium text-gray-200 transition hover:bg-white/5 disabled:opacity-50';
+  "inline-flex items-center justify-center rounded-xl border border-white/10 font-medium text-gray-200 transition hover:bg-white/5 disabled:opacity-50";
 
 // Learner-facing names for the course's progress metrics (display-only — the
 // underlying retention/mastery data is unchanged in code/telemetry).
-export const METRIC_REMEMBERED_LABEL = 'Remembered';
-export const METRIC_SOLID_LEARNING_LABEL = 'Solid / Still learning';
-export const METRIC_NEEDS_LOOK_LABEL = 'Needs another look';
-export const METRIC_READY_TO_REVIEW_LABEL = 'Review queue';
+export const METRIC_REMEMBERED_LABEL = "Remembered";
+export const METRIC_SOLID_LEARNING_LABEL = "Solid / Still learning";
+export const METRIC_NEEDS_LOOK_LABEL = "Needs another look";
+export const METRIC_READY_TO_REVIEW_LABEL = "Review queue";
 
 /** "~N a day to stay on track" — pace without exposing planner mechanics. */
 export function stayOnTrackLine(perDay: number): string {
   return `~${perDay} a day to stay on track`;
 }
 
-/** Deadline pace status — encouraging, not scolding ("Behind" → "Needs catch-up"). */
+/** Deadline pace status — actionable, never scolding: behind reads as the one
+ *  step that fixes it, not a judgement. */
 export function scheduleStatusLabel(onTrack: boolean): string {
-  return onTrack ? 'On track' : 'Needs catch-up';
+  return onTrack ? "On track" : "One session today puts you back on track";
+}
+
+export type DeadlineView = {
+  dateLabel: string;
+  daysLabel: string | null;
+  overdue: boolean;
+  onTrack: boolean | null;
+  statusLabel: string | null;
+};
+
+/**
+ * A safe, calm view of a learning-plan deadline — or null when there's nothing
+ * meaningful to show (missing/invalid target date), so the hero never renders
+ * "Invalid Date" or an empty deadline line. Avoids the "0 days left" oddity by
+ * reading day 0 as "Due today"; negative days read as "overdue".
+ *
+ * `opts.started`: a brand-new user (no completed practice yet) is never shown
+ * a behind-schedule warning — there's no habit to be behind on. Defaults to
+ * true so callers that already gate on activity keep today's behavior.
+ */
+export function deadlineView(
+  input:
+    | {
+        targetDate?: string | null;
+        daysRemaining?: number | null;
+        onTrack?: boolean | null;
+      }
+    | null
+    | undefined,
+  opts?: { started?: boolean },
+): DeadlineView | null {
+  if (!input?.targetDate) return null;
+  const d = new Date(input.targetDate);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const days = input.daysRemaining;
+  let daysLabel: string | null = null;
+  let overdue = false;
+  if (days != null) {
+    if (days < 0) {
+      daysLabel = "overdue";
+      overdue = true;
+    } else if (days === 0) {
+      daysLabel = "Due today";
+    } else {
+      daysLabel = `${days} day${days === 1 ? "" : "s"} left`;
+    }
+  }
+
+  const started = opts?.started ?? true;
+  let onTrack = input.onTrack ?? null;
+  // Day-one grace: no behind-schedule warning before the first session.
+  if (onTrack === false && !started) onTrack = null;
+
+  return {
+    dateLabel: d.toLocaleDateString(),
+    daysLabel,
+    overdue,
+    onTrack,
+    statusLabel: onTrack != null ? scheduleStatusLabel(onTrack) : null,
+  };
 }
 
 /**
@@ -634,5 +895,5 @@ export function scheduleStatusLabel(onTrack: boolean): string {
  * any "{{ … }}") with a plain "_____". Display-only — stored data is untouched.
  */
 export function renderClozeText(text: string | null | undefined): string {
-  return (text ?? '').replace(/\{\{\s*[^{}]*\}\}/g, '_____');
+  return (text ?? "").replace(/\{\{\s*[^{}]*\}\}/g, "_____");
 }

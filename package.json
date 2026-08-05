@@ -1,17 +1,40 @@
 {
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "pnpm --if-present -r typecheck",
+    "test": "pnpm --if-present -r test",
+    "lint": "pnpm --if-present -r lint",
+    "build": "pnpm --if-present -r build",
+    "ci": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm --dir infra synth",
     "eval:retrieval": "tsx backend/src/evals/run-retrieval-eval.ts",
     "eval:grounding": "tsx backend/src/evals/run-grounding-eval.ts",
     "eval:quiz": "tsx backend/src/evals/run-quiz-quality-eval.ts"
   },
   "lint-staged": {
-    "*.{ts,tsx}": [
-      "eslint --fix",
+    "frontend/**/*.{ts,tsx}": [
+      "pnpm --dir frontend exec eslint --fix",
+      "prettier --write"
+    ],
+    "backend/**/*.ts": [
+      "pnpm --dir backend exec eslint --fix",
+      "prettier --write"
+    ],
+    "infra/**/*.ts": [
       "prettier --write"
     ]
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": ">=0.35.0",
+      "postcss": ">=8.5.18",
+      "@babel/core": ">=7.29.6",
+      "@babel/helpers": ">=7.29.2",
+      "@babel/traverse": ">=7.29.0",
+      "brace-expansion@<2.0.0": "1.1.18",
+      "brace-expansion@>=2.0.0 <3.0.0": "2.1.4",
+      "brace-expansion@>=3.0.0": "5.0.9",
+      "js-yaml@<4.0.0": "3.15.0",
+      "js-yaml@>=4.0.0 <5.0.0": "4.3.0"
+    }
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",
@@ -20,13 +43,14 @@
     "@aws-sdk/client-bedrock-runtime": "^3.1049.0",
     "@aws-sdk/client-dynamodb": "^3.1053.0",
     "@aws-sdk/client-lambda": "^3.1053.0",
-    "@aws-sdk/client-s3": "^3.1050.0",
+    "@aws-sdk/client-s3": "^3.1103.0",
     "@aws-sdk/client-secrets-manager": "^3.1050.0",
+    "@aws-sdk/client-sqs": "^3.1050.0",
     "@aws-sdk/lib-dynamodb": "^3.1053.0",
-    "@aws-sdk/s3-request-presigner": "^3.1072.0",
+    "@aws-sdk/s3-presigned-post": "^3.1103.0",
     "@clerk/backend": "^1",
     "dotenv": "^17.4.2",
-    "hono": "^4.12.21",
+    "hono": "^4.12.34",
     "openai": "^6.39.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.21.0",
@@ -34,8 +58,14 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.152",
+    "@types/node": "^24.12.4",
     "@types/pg": "^8.20.0",
-    "esbuild": "^0.28.0",
-    "tsx": "^4.22.0"
+    "esbuild": "^0.28.1",
+    "lint-staged": "^17.3.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.22.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.61.0"
   }
 }

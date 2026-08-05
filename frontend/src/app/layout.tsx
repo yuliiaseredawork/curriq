@@ -1,22 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Curriq — your guided learning path",
+  title: "Curriq — retain what you watch, for the interview",
   description:
-    "Turn any video or PDF into a guided learning path. Curriq tells you what to study next, checks your understanding, and brings weak concepts back before you forget them.",
+    "Curriq turns system design videos and PDFs into spaced-repetition practice. It finds the concepts you mix up, schedules targeted review, and brings them back before your interview.",
 };
 
 export default function RootLayout({
@@ -26,10 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html
-        lang="en"
-        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      >
+      <html lang="en" className="h-full antialiased">
         <body className="min-h-full flex flex-col">{children}</body>
       </html>
     </ClerkProvider>

@@ -1,12 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 // Remediation questions for a weak concept. Like practice-writer, but each
 // question carries an `explanation` (ideal-answer rationale) used by the rubric
 // grader for open-ended answers.
 const RemediationQuestionSchema = z.object({
   id: z.string(),
-  type: z.enum(['mcq', 'short']),
+  type: z.enum(["mcq", "short"]),
   question: z.string(),
   choices: z
     .array(z.string())
@@ -16,7 +16,7 @@ const RemediationQuestionSchema = z.object({
   explanation: z.string(),
   source_chunk_id: z.string(),
   source_quote: z.string(),
-  difficulty: z.enum(['easy', 'medium', 'hard']),
+  difficulty: z.enum(["easy", "medium", "hard"]),
   concept_tags: z.array(z.string()).min(1),
 });
 
@@ -27,8 +27,6 @@ const RemediationSchema = z.object({
 });
 
 export type RemediationSet = z.infer<typeof RemediationSchema>;
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 const SYSTEM = `
 You are an expert tutor creating targeted remediation for a concept a learner
@@ -48,11 +46,11 @@ function buildPrompt(input: {
   const chunksText = input.chunks
     .map(
       (c) => `
-<chunk id="${c.id}"${c.video_id ? ` video_id="${c.video_id}"` : ''}>
+<chunk id="${c.id}"${c.video_id ? ` video_id="${c.video_id}"` : ""}>
 ${c.text}
 </chunk>`,
     )
-    .join('\n');
+    .join("\n");
 
   return `
 <task>
@@ -100,17 +98,19 @@ export async function generateRemediation(input: {
   chunks: Array<{ id: string | number; video_id?: string; text: string }>;
 }): Promise<RemediationSet> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 3000,
       temperature: 0.3,
       system: SYSTEM,
-      messages: [{ role: 'user', content: buildPrompt(input) }],
+      messages: [{ role: "user", content: buildPrompt(input) }],
     });
 
-    const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
     if (start === -1 || end === -1) continue;
 
     try {
@@ -119,5 +119,5 @@ export async function generateRemediation(input: {
       // retry
     }
   }
-  throw new Error('Failed to generate valid remediation');
+  throw new Error("Failed to generate valid remediation");
 }

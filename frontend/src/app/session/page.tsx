@@ -1,14 +1,15 @@
-'use client';
+"use client";
 
-import { Suspense, useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { useAuth, useUser } from '@clerk/nextjs';
-import { createApiClient } from '@/lib/api';
-import { ScannableText } from '@/components/ScannableText';
-import { RatingButtons } from '@/components/RatingButtons';
-import { McqChoices } from '@/components/McqChoices';
-import { FlashcardBack } from '@/components/FlashcardBack';
-import { extractKeyTerms } from '@/lib/highlightTerms';
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
+import Link from "next/link";
+import { createApiClient } from "@/lib/api";
+import { ScannableText } from "@/components/ScannableText";
+import { RatingButtons } from "@/components/RatingButtons";
+import { McqChoices } from "@/components/McqChoices";
+import { FlashcardBack } from "@/components/FlashcardBack";
+import { extractKeyTerms } from "@/lib/highlightTerms";
 import {
   sessionProgressLabel,
   sessionEmptyState,
@@ -30,8 +31,10 @@ import {
   mixUpNote,
   truncateCoachText,
   scrubInternalWording,
-} from '@/lib/learnerCopy';
-import { parseSessionScope } from '@/lib/sessionScope';
+  safeErrorMessage,
+} from "@/lib/learnerCopy";
+import { parseSessionScope } from "@/lib/sessionScope";
+import { track, recordSessionCompleted } from "@/lib/analytics";
 import {
   pageShell,
   readingContainer,
@@ -40,25 +43,19 @@ import {
   ghostLink,
   progressTrack,
   progressFill,
-} from '@/lib/ui';
+} from "@/lib/ui";
 
 function SessionInner() {
   const { getToken, isLoaded } = useAuth();
-  const { user, isLoaded: userLoaded } = useUser();
   const api = createApiClient(getToken);
 
   // Scope params on the same session: all-courses, one course, or one chapter.
   const searchParams = useSearchParams();
-  const { courseId: scopeCourseId, chapterId: scopeChapterId } = parseSessionScope(searchParams);
-
-  const userId = user?.primaryEmailAddress?.emailAddress
-    ? `email:${user.primaryEmailAddress.emailAddress.toLowerCase()}`
-    : user?.id
-      ? `clerk:${user.id}`
-      : null;
+  const { courseId: scopeCourseId, chapterId: scopeChapterId } =
+    parseSessionScope(searchParams);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [goal, setGoal] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [index, setIndex] = useState(0);
@@ -67,41 +64,57 @@ function SessionInner() {
   // Per-task interaction state (reset on advance).
   const [back, setBack] = useState<any>(null); // flashcard reveal
   const [rated, setRated] = useState<any>(null); // flashcard rating result
-  const [answer, setAnswer] = useState('');
+  const [recall, setRecall] = useState(""); // optional pre-reveal recall attempt
+  const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState<any>(null); // review/quiz feedback
   const [busy, setBusy] = useState(false);
 
+  function resetTaskState() {
+    setBack(null);
+    setRated(null);
+    setRecall("");
+    setAnswer("");
+    setFeedback(null);
+  }
+
   async function load() {
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const res = await api.getSessionToday(scopeCourseId, scopeChapterId);
       setGoal(res.goal);
       setTasks(res.tasks ?? []);
       setIndex(0);
       resetTaskState();
+
+      const src = searchParams.get("src");
+      if (src === "email-daily") track("review_email_clicked");
+      if ((res.tasks?.length ?? 0) > 0) {
+        track("review_session_started", {
+          scope: scopeChapterId ? "chapter" : scopeCourseId ? "course" : "all",
+          taskCount: res.tasks.length,
+          ...(src ? { src } : {}),
+        });
+      }
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load session');
+      setError(e.message ?? "Failed to load session");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (!isLoaded || !userLoaded) return;
+    if (!isLoaded) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, userLoaded, scopeCourseId, scopeChapterId]);
-
-  function resetTaskState() {
-    setBack(null);
-    setRated(null);
-    setAnswer('');
-    setFeedback(null);
-  }
+  }, [isLoaded, scopeCourseId, scopeChapterId]);
 
   function advance() {
     resetTaskState();
+    // Completing the last task = a finished review session (D1/D2 signal).
+    if (index + 1 >= tasks.length) {
+      recordSessionCompleted({ reviewed: reviewed + 1 });
+    }
     setReviewed((n) => n + 1);
     setIndex((i) => i + 1);
   }
@@ -113,7 +126,7 @@ function SessionInner() {
     try {
       setBack(await api.revealFlashcard(task.cardId, task.courseId));
     } catch (e: any) {
-      setError(e.message ?? 'Failed to reveal');
+      setError(e.message ?? "Failed to reveal");
     }
   }
 
@@ -123,7 +136,7 @@ function SessionInner() {
       const result = await api.rateFlashcard(task.cardId, task.courseId, r);
       setRated({ rating: r, ...result });
     } catch (e: any) {
-      setError(e.message ?? 'Failed to rate');
+      setError(e.message ?? "Failed to rate");
     } finally {
       setBusy(false);
     }
@@ -133,14 +146,13 @@ function SessionInner() {
   async function handleSubmit() {
     if (!answer || !task) return;
     setBusy(true);
-    setError('');
+    setError("");
     try {
       let raw: any;
-      if (task.kind === 'review') {
+      if (task.kind === "review") {
         raw = await api.answerReview(task.reviewId, answer);
       } else {
         raw = await api.submitAnswer({
-          userId: userId ?? '',
           courseId: task.courseId,
           chapterId: task.chapterId,
           questionId: task.questionId,
@@ -149,7 +161,7 @@ function SessionInner() {
       }
       setFeedback(normalizeFeedback(task.kind, raw));
     } catch (e: any) {
-      setError(e.message ?? 'Failed to submit answer');
+      setError(e.message ?? "Failed to submit answer");
     } finally {
       setBusy(false);
     }
@@ -158,14 +170,28 @@ function SessionInner() {
   const Shell = ({ children }: { children: React.ReactNode }) => (
     <main className={pageShell}>
       <div className={`${readingContainer} space-y-6`}>
-        <a href="/" className={ghostLink}>← Home</a>
+        <Link href="/" className={ghostLink}>
+          ← Home
+        </Link>
         {children}
       </div>
     </main>
   );
 
-  if (loading) return <Shell><p className="text-gray-300">Loading your session…</p></Shell>;
-  if (error) return <Shell><div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">{error}</div></Shell>;
+  if (loading)
+    return (
+      <Shell>
+        <p className="text-gray-300">Loading your session…</p>
+      </Shell>
+    );
+  if (error)
+    return (
+      <Shell>
+        <div className="rounded-2xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">
+          {safeErrorMessage(error)}
+        </div>
+      </Shell>
+    );
 
   // Empty session (no current task): distinguish completion vs. a still-
   // preparing new course vs. genuinely nothing due.
@@ -176,19 +202,24 @@ function SessionInner() {
       scopeChapterId,
       chapterReady: goal?.chapterReady,
     });
-    const preparing = empty.kind === 'preparing';
-    const backHref = 'backHref' in empty ? empty.backHref : undefined;
+    const preparing = empty.kind === "preparing";
+    const backHref = "backHref" in empty ? empty.backHref : undefined;
     return (
       <Shell>
         <div
           className={`rounded-2xl border p-8 space-y-2 text-center ${
-            preparing ? 'border-blue-500/30 bg-blue-950/30' : 'border-green-500/30 bg-green-950/25'
+            preparing
+              ? "border-blue-500/30 bg-blue-950/30"
+              : "border-green-500/30 bg-green-950/25"
           }`}
         >
           <div className="text-2xl font-bold tracking-tight">{empty.title}</div>
           <p className="text-gray-300">{empty.body}</p>
           {backHref && (
-            <a href={backHref} className="inline-block pt-1 text-sm text-blue-300 hover:text-blue-200">
+            <a
+              href={backHref}
+              className="inline-block pt-1 text-sm text-blue-300 hover:text-blue-200"
+            >
               ← Back to course
             </a>
           )}
@@ -199,7 +230,10 @@ function SessionInner() {
 
   const keyTermsForQuestion = task.question
     ? extractKeyTerms({
-        text: [task.question.question, ...((task.question.choices as string[]) ?? [])],
+        text: [
+          task.question.question,
+          ...((task.question.choices as string[]) ?? []),
+        ],
         explicit: task.question.concept_tags ?? [],
       })
     : [];
@@ -211,7 +245,9 @@ function SessionInner() {
           <span className="font-medium text-gray-300">
             {sessionProgressLabel(index, tasks.length)}
           </span>
-          <span className="ml-3 truncate text-gray-500">{task.courseTitle}</span>
+          <span className="ml-3 truncate text-gray-500">
+            {task.courseTitle}
+          </span>
         </div>
         <div className={progressTrack}>
           <div
@@ -221,56 +257,89 @@ function SessionInner() {
         </div>
       </div>
 
-      {task.kind === 'flashcard'
-        ? renderFlashcard()
-        : renderQuestion()}
+      {task.kind === "flashcard" ? renderFlashcard() : renderQuestion()}
     </Shell>
   );
 
   // ------------------------------------------------------------------------
   function renderFlashcard() {
-    const keyTerms = extractKeyTerms({ text: [task.front, back?.back], explicit: [task.concept] });
+    const keyTerms = extractKeyTerms({
+      text: [task.front, back?.back],
+      explicit: [task.concept],
+    });
     return (
       <>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`${eyebrow} text-purple-300`}>{FLASHCARD_REVIEW_EYEBROW}</span>
+          <span className={`${eyebrow} text-purple-300`}>
+            {FLASHCARD_REVIEW_EYEBROW}
+          </span>
           {task.concept && (
             <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-0.5 text-xs text-gray-400">
               {task.concept}
             </span>
           )}
         </div>
-        <section className={`${elevatedCard} flex min-h-[200px] flex-col justify-center gap-4 p-6 sm:p-7`}>
+        <section
+          className={`${elevatedCard} flex min-h-[200px] flex-col justify-center gap-4 p-6 sm:p-7`}
+        >
           <ScannableText
             text={renderClozeText(task.front)}
             keyTerms={keyTerms}
             className="text-xl font-medium leading-relaxed"
           />
           {back && (
-            <div className="border-t border-white/10 pt-4">
+            <div className="space-y-3 border-t border-white/10 pt-4">
+              {recall.trim() && (
+                <p className="text-xs text-gray-500">
+                  Your recall:{" "}
+                  <span className="text-gray-400">“{recall.trim()}”</span>
+                </p>
+              )}
               <FlashcardBack back={back} concept={task.concept} />
             </div>
           )}
         </section>
 
         {!back ? (
-          <button
-            className="w-full rounded-xl bg-white px-5 py-3.5 font-medium text-black transition hover:bg-gray-100"
-            onClick={handleReveal}
-          >
-            Show answer
-          </button>
+          <div className="space-y-2.5">
+            {/* Attempt recall BEFORE seeing the answer — better memory, and the
+                self-grade that follows is honest instead of hindsight. */}
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm transition placeholder:text-gray-500 focus:border-blue-500/50 focus:outline-none"
+              placeholder="Try to recall it first (optional)…"
+              value={recall}
+              onChange={(e) => setRecall(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleReveal();
+              }}
+            />
+            <button
+              className="w-full rounded-xl bg-white px-5 py-3.5 font-medium text-black transition hover:bg-gray-100"
+              onClick={handleReveal}
+            >
+              Show answer
+            </button>
+          </div>
         ) : rated ? (
           <div className="rounded-2xl border border-green-500/25 bg-green-950/20 p-5 text-center space-y-3">
-            <div className="text-sm font-medium text-green-300">{FLASHCARD_SAVED_LABEL} ✓</div>
-            <p className="text-sm text-gray-400">{flashcardRatedLine(rated.rating, rated.intervalDays)}</p>
-            <button className={`${primaryButtonClass} px-6 py-3`} onClick={advance}>
-              {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
+            <div className="text-sm font-medium text-green-300">
+              {FLASHCARD_SAVED_LABEL} ✓
+            </div>
+            <p className="text-sm text-gray-400">
+              {flashcardRatedLine(rated.rating, rated.intervalDays)}
+            </p>
+            <button
+              className={`${primaryButtonClass} w-full px-6 py-3 sm:w-auto`}
+              onClick={advance}
+            >
+              {index + 1 < tasks.length ? "Next" : "Finish session"}
             </button>
           </div>
         ) : (
           <div className="space-y-2.5">
-            <p className="text-center text-sm font-medium text-gray-300">{FLASHCARD_RATING_PROMPT}</p>
+            <p className="text-center text-sm font-medium text-gray-300">
+              {FLASHCARD_RATING_PROMPT}
+            </p>
             <RatingButtons onRate={handleRate} disabled={busy} />
           </div>
         )}
@@ -285,8 +354,12 @@ function SessionInner() {
     return (
       <>
         <div>
-          <div className={`${eyebrow} text-blue-300`}>{questionEyebrow(task)}</div>
-          <h1 className="text-2xl font-bold tracking-tight">{questionHeading(task)}</h1>
+          <div className={`${eyebrow} text-blue-300`}>
+            {questionEyebrow(task)}
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {questionHeading(task)}
+          </h1>
           {context && <p className="mt-1 text-sm text-gray-400">{context}</p>}
         </div>
 
@@ -297,18 +370,25 @@ function SessionInner() {
             </span>
           )}
           {q.question.length > 180 ? (
-            <ScannableText text={q.question} keyTerms={keyTermsForQuestion} className="text-xl font-semibold leading-relaxed" />
+            <ScannableText
+              text={q.question}
+              keyTerms={keyTermsForQuestion}
+              className="text-xl font-semibold leading-relaxed"
+            />
           ) : (
-            <h2 className="text-xl font-semibold leading-relaxed">{q.question}</h2>
+            <h2 className="text-xl font-semibold leading-relaxed">
+              {q.question}
+            </h2>
           )}
 
-          {q.type === 'mcq' && q.choices?.length ? (
+          {q.type === "mcq" && q.choices?.length ? (
             <McqChoices
               choices={q.choices}
               selected={answer}
               onSelect={setAnswer}
               disabled={busy || !!feedback}
               keyTerms={keyTermsForQuestion}
+              allowNotSure
             />
           ) : (
             <textarea
@@ -323,119 +403,157 @@ function SessionInner() {
 
           {!feedback && (
             <button
-              className={`${primaryButtonClass} px-6 py-3`}
+              className={`${primaryButtonClass} w-full px-6 py-3 sm:w-auto`}
               onClick={handleSubmit}
               disabled={!answer || busy}
             >
-              {busy ? 'Checking your answer…' : 'Submit answer'}
+              {busy ? "Checking your answer…" : "Submit answer"}
             </button>
           )}
 
-          {feedback && (() => {
-            // Coach-like + compact: status, the correct option (incorrect MCQ),
-            // one concise takeaway, an optional "why it was tempting", then the
-            // long stuff collapsed — so Next stays close. Grading is unchanged.
-            const fullExplanation = (feedback.explanation ?? '').trim();
-            const isMcq = q.type === 'mcq' && (q.choices?.length ?? 0) > 0;
-            // Incorrect MCQ: surface the correct option plainly, not buried in prose.
-            const correctAns =
-              isMcq && !feedback.correct ? correctAnswerLabel(feedback.idealAnswer, q.choices) : null;
-            // Takeaway strips the verdict + "the correct answer is X" boilerplate
-            // and scrubs internal/backend wording.
-            const takeaway = feedbackTakeaway(fullExplanation);
-            const tempting = !feedback.correct ? mixUpNote(fullExplanation) : null;
-            // Model answer is its own collapsed line only for open-ended questions
-            // (for MCQ the correct option is already shown above).
-            const modelAnswer = !isMcq ? (feedback.idealAnswer ?? null) : null;
-            // Details = the explanation MINUS the takeaway sentence (no duplicate),
-            // scrubbed of internal terms.
-            const detail = feedbackDetail(fullExplanation);
-            const hasDetails =
-              (feedback.strengths?.length ?? 0) > 0 ||
-              (feedback.missingConcepts?.length ?? 0) > 0 ||
-              !!detail;
-            return (
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className={`font-medium ${feedback.correct ? 'text-green-400' : 'text-yellow-300'}`}>{feedback.headline}</span>
-                  {feedback.meta && <span className="text-xs text-gray-400">{feedback.meta}</span>}
-                </div>
-
-                {correctAns && (
-                  <p className="text-sm">
-                    <span className="text-gray-500">Correct answer:</span>{' '}
-                    <span className="font-medium text-gray-100">{correctAns}</span>
-                  </p>
-                )}
-
-                {takeaway && (
-                  <div>
-                    <div className={`${eyebrow} text-gray-500`}>{feedbackEyebrow(feedback.correct)}</div>
-                    <p className="text-gray-200">{takeaway}</p>
+          {feedback &&
+            (() => {
+              // Coach-like + compact: status, the correct option (incorrect MCQ),
+              // one concise takeaway, an optional "why it was tempting", then the
+              // long stuff collapsed — so Next stays close. Grading is unchanged.
+              const fullExplanation = (feedback.explanation ?? "").trim();
+              const isMcq = q.type === "mcq" && (q.choices?.length ?? 0) > 0;
+              // Incorrect MCQ: surface the correct option plainly, not buried in prose.
+              const correctAns =
+                isMcq && !feedback.correct
+                  ? correctAnswerLabel(feedback.idealAnswer, q.choices)
+                  : null;
+              // Takeaway strips the verdict + "the correct answer is X" boilerplate
+              // and scrubs internal/backend wording.
+              const takeaway = feedbackTakeaway(fullExplanation);
+              const tempting = !feedback.correct
+                ? mixUpNote(fullExplanation)
+                : null;
+              // Model answer is its own collapsed line only for open-ended questions
+              // (for MCQ the correct option is already shown above).
+              const modelAnswer = !isMcq
+                ? (feedback.idealAnswer ?? null)
+                : null;
+              // Details = the explanation MINUS the takeaway sentence (no duplicate),
+              // scrubbed of internal terms.
+              const detail = feedbackDetail(fullExplanation);
+              const hasDetails =
+                (feedback.strengths?.length ?? 0) > 0 ||
+                (feedback.missingConcepts?.length ?? 0) > 0 ||
+                !!detail;
+              return (
+                <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`font-medium ${feedback.correct ? "text-green-400" : "text-yellow-300"}`}
+                    >
+                      {feedback.headline}
+                    </span>
+                    {feedback.meta && (
+                      <span className="text-xs text-gray-400">
+                        {feedback.meta}
+                      </span>
+                    )}
                   </div>
-                )}
 
-                {tempting && (
-                  <div>
-                    <div className={`${eyebrow} text-gray-500`}>Why your answer was tempting</div>
-                    <p className="text-sm text-gray-300">{truncateCoachText(scrubInternalWording(tempting), 160)}</p>
-                  </div>
-                )}
+                  {correctAns && (
+                    <p className="text-sm">
+                      <span className="text-gray-500">Correct answer:</span>{" "}
+                      <span className="font-medium text-gray-100">
+                        {correctAns}
+                      </span>
+                    </p>
+                  )}
 
-                {hasDetails && (
-                  <details>
-                    <summary className="cursor-pointer text-sm text-gray-500 transition hover:text-gray-300">
-                      Show details
-                    </summary>
-                    <div className="mt-2 space-y-3">
-                      {feedback.strengths?.length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-green-400">What you got right</div>
-                          <ul className="list-disc pl-5 text-sm text-gray-300">
-                            {feedback.strengths.map((s: string, i: number) => <li key={i}>{s}</li>)}
-                          </ul>
-                        </div>
-                      )}
-                      {feedback.missingConcepts?.length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-yellow-300">What you missed</div>
-                          <ul className="list-disc pl-5 text-sm text-gray-300">
-                            {feedback.missingConcepts.map((s: string, i: number) => <li key={i}>{s}</li>)}
-                          </ul>
-                        </div>
-                      )}
-                      {detail && (
-                        <ScannableText
-                          text={detail}
-                          keyTerms={keyTermsForQuestion}
-                          clampChars={320}
-                          className="max-w-prose text-sm text-gray-300"
-                        />
-                      )}
+                  {takeaway && (
+                    <div>
+                      <div className={`${eyebrow} text-gray-500`}>
+                        {feedbackEyebrow(feedback.correct)}
+                      </div>
+                      <p className="text-gray-200">{takeaway}</p>
                     </div>
-                  </details>
-                )}
+                  )}
 
-                {modelAnswer && (
-                  <details className="text-sm">
-                    <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-gray-500">
-                      Model answer
-                    </summary>
-                    <ScannableText
-                      text={scrubInternalWording(modelAnswer)}
-                      keyTerms={keyTermsForQuestion}
-                      clampChars={200}
-                      className="mt-1 max-w-prose text-sm text-gray-400"
-                    />
-                  </details>
-                )}
+                  {tempting && (
+                    <div>
+                      <div className={`${eyebrow} text-gray-500`}>
+                        Why your answer was tempting
+                      </div>
+                      <p className="text-sm text-gray-300">
+                        {truncateCoachText(scrubInternalWording(tempting), 160)}
+                      </p>
+                    </div>
+                  )}
 
-                <button className={`${primaryButtonClass} px-6 py-3`} onClick={advance}>
-                  {index + 1 < tasks.length ? 'Next task' : 'Finish session'}
-                </button>
-              </div>
-            );
-          })()}
+                  {hasDetails && (
+                    <details>
+                      <summary className="cursor-pointer text-sm text-gray-500 transition hover:text-gray-300">
+                        Show details
+                      </summary>
+                      <div className="mt-2 space-y-3">
+                        {feedback.strengths?.length > 0 && (
+                          <div>
+                            <div className="text-sm font-medium text-green-400">
+                              What you got right
+                            </div>
+                            <ul className="list-disc pl-5 text-sm text-gray-300">
+                              {feedback.strengths.map(
+                                (s: string, i: number) => (
+                                  <li key={i}>{s}</li>
+                                ),
+                              )}
+                            </ul>
+                          </div>
+                        )}
+                        {feedback.missingConcepts?.length > 0 && (
+                          <div>
+                            <div className="text-sm font-medium text-yellow-300">
+                              What you missed
+                            </div>
+                            <ul className="list-disc pl-5 text-sm text-gray-300">
+                              {feedback.missingConcepts.map(
+                                (s: string, i: number) => (
+                                  <li key={i}>{s}</li>
+                                ),
+                              )}
+                            </ul>
+                          </div>
+                        )}
+                        {detail && (
+                          <ScannableText
+                            text={detail}
+                            keyTerms={keyTermsForQuestion}
+                            clampChars={320}
+                            className="max-w-prose text-sm text-gray-300"
+                          />
+                        )}
+                      </div>
+                    </details>
+                  )}
+
+                  {modelAnswer && (
+                    <details className="text-sm">
+                      <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Model answer
+                      </summary>
+                      <ScannableText
+                        text={scrubInternalWording(modelAnswer)}
+                        keyTerms={keyTermsForQuestion}
+                        clampChars={200}
+                        className="mt-1 max-w-prose text-sm text-gray-400"
+                      />
+                    </details>
+                  )}
+
+                  <button
+                    className={`${primaryButtonClass} w-full px-6 py-3 sm:w-auto`}
+                    onClick={advance}
+                  >
+                    {index + 1 < tasks.length ? "Next" : "Finish session"}
+                  </button>
+                </div>
+              );
+            })()}
         </section>
       </>
     );
@@ -453,17 +571,20 @@ export default function SessionPage() {
 
 /** Normalize the two answer-feedback shapes (reviews vs. study) into one view model. */
 function normalizeFeedback(kind: string, raw: any) {
-  if (kind === 'review') {
+  if (kind === "review") {
     const fb = raw.feedback ?? {};
-    const correct = fb.type === 'rubric' ? raw.score >= 70 : !!fb.correct;
+    const correct = fb.type === "rubric" ? raw.score >= 70 : !!fb.correct;
     return {
       correct,
-      headline: fb.type === 'rubric' ? `Score ${raw.score}/100` : feedbackStatusLabel(correct),
+      headline:
+        fb.type === "rubric"
+          ? `Score ${raw.score}/100`
+          : feedbackStatusLabel(correct),
       meta:
         raw.quality && raw.intervalDays != null
           ? `Rated ${raw.quality} · next review in ${raw.intervalDays}d`
           : undefined,
-      explanation: fb.type === 'rubric' ? fb.feedback : fb.explanation,
+      explanation: fb.type === "rubric" ? fb.feedback : fb.explanation,
       idealAnswer: raw.idealAnswer,
       strengths: fb.strengths,
       missingConcepts: fb.missingConcepts,

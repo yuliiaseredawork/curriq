@@ -1,6 +1,10 @@
-import { SignIn } from '@clerk/nextjs';
-import { HOME_HERO_HEADLINE, HOME_VALUE_PROP } from '@/lib/learnerCopy';
-import { pageShell, eyebrow } from '@/lib/ui';
+import { SignIn } from "@clerk/nextjs";
+import {
+  HOME_HERO_EYEBROW,
+  HOME_HERO_HEADLINE,
+  HOME_VALUE_PROP,
+} from "@/lib/learnerCopy";
+import { pageShell, eyebrow } from "@/lib/ui";
 
 export default function SignInPage() {
   return (
@@ -9,11 +13,15 @@ export default function SignInPage() {
         {/* Brand + value prop: visible before signing in (above on mobile,
             beside the sign-in card on desktop). */}
         <div className="space-y-4">
-          <div className={`${eyebrow} text-blue-300/90`}>Your AI learning coach</div>
+          <div className={`${eyebrow} text-blue-300/90`}>
+            {HOME_HERO_EYEBROW}
+          </div>
           <h1 className="text-4xl font-bold tracking-tight" aria-label="Curriq">
             Curri<span className="text-blue-400">q</span>
           </h1>
-          <h2 className="text-2xl font-semibold text-gray-100">{HOME_HERO_HEADLINE}</h2>
+          <h2 className="text-2xl font-semibold text-gray-100">
+            {HOME_HERO_HEADLINE}
+          </h2>
           <p className="text-lg text-gray-400">{HOME_VALUE_PROP}</p>
         </div>
 

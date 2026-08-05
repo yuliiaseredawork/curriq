@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
+import { z } from "zod";
+import { getAnthropicClient } from "../config/provider-secrets";
 
 // Rubric grading for open-ended remediation answers. Returns a structured
 // breakdown (not just an ideal answer) so the UI can show what the learner got
@@ -14,8 +14,6 @@ const RubricSchema = z.object({
 });
 
 export type RubricResult = z.infer<typeof RubricSchema>;
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 const SYSTEM = `
 You are a strict but encouraging tutor grading a learner's open-ended answer
@@ -49,7 +47,7 @@ ${input.question}
 ${input.idealAnswer}
 </ideal_answer>
 
-${input.sourceQuote ? `<source>\n${input.sourceQuote}\n</source>\n` : ''}
+${input.sourceQuote ? `<source>\n${input.sourceQuote}\n</source>\n` : ""}
 <learner_answer>
 ${input.userAnswer}
 </learner_answer>
@@ -67,17 +65,19 @@ Return ONLY:
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const res = await (
+      await getAnthropicClient()
+    ).messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 1200,
       temperature: 0,
       system: SYSTEM,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: "user", content: prompt }],
     });
 
-    const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
+    const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
     if (start === -1 || end === -1) continue;
 
     try {

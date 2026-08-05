@@ -3,22 +3,24 @@
 // and by the manual retry endpoint. Tracks status via per-chapter status
 // objects so parallel invocations never clobber each other.
 
-import OpenAI from 'openai';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 
-import { generateQuiz } from '../agents/quiz-writer';
+import { generateQuiz } from "../agents/quiz-writer";
 import {
+  loadChapterQuizStatus,
   loadOutline,
   saveQuiz,
   updateChapterQuizStatus,
-} from '../storage/course-artifacts';
+} from "../storage/course-artifacts";
+import { getOpenAiClient } from "../config/provider-secrets";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 const lambda = new LambdaClient({});
 
 async function embed(text: string): Promise<number[]> {
-  const res = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+  const res = await (
+    await getOpenAiClient()
+  ).embeddings.create({
+    model: "text-embedding-3-small",
     input: text,
   });
   return res.data[0].embedding;
@@ -46,7 +48,7 @@ async function searchChunks(input: {
 
   const raw = response.Payload
     ? new TextDecoder().decode(response.Payload)
-    : '';
+    : "";
   if (response.FunctionError) {
     throw new Error(`SearchChunksFn failed: ${response.FunctionError} ${raw}`);
   }
@@ -58,11 +60,26 @@ export const handler = async (event: {
   chapterId: string;
 }) => {
   const { courseId, chapterId } = event;
-  console.log('[generate-chapter-quiz] start', { courseId, chapterId });
+  console.log("[generate-chapter-quiz] start", { courseId, chapterId });
 
   try {
-    await updateChapterQuizStatus(courseId, chapterId, { status: 'GENERATING' });
-    console.log('[generate-chapter-quiz] status → GENERATING', { courseId, chapterId });
+    const existing = await loadChapterQuizStatus(courseId, chapterId);
+    if (existing?.status === "READY") {
+      return {
+        courseId,
+        chapterId,
+        status: "READY",
+        questionCount: existing.questionCount ?? 0,
+        idempotentReplay: true,
+      };
+    }
+    await updateChapterQuizStatus(courseId, chapterId, {
+      status: "GENERATING",
+    });
+    console.log("[generate-chapter-quiz] status → GENERATING", {
+      courseId,
+      chapterId,
+    });
 
     const outline = await loadOutline(courseId);
     const chapter = outline.chapters?.find((ch: any) => ch.id === chapterId);
@@ -74,11 +91,11 @@ export const handler = async (event: {
       chapter.title,
       chapter.summary,
       ...(chapter.learning_objectives ?? []),
-    ].join('\n');
+    ].join("\n");
 
     const search = await searchChunks({ courseId, query, limit: 10 });
     if (!search.results?.length) {
-      throw new Error('No source chunks found for chapter');
+      throw new Error("No source chunks found for chapter");
     }
 
     const quiz = await generateQuiz({
@@ -91,20 +108,25 @@ export const handler = async (event: {
 
     await saveQuiz(courseId, chapterId, quiz);
     await updateChapterQuizStatus(courseId, chapterId, {
-      status: 'READY',
+      status: "READY",
       questionCount: quiz.questions.length,
     });
 
-    console.log('[generate-chapter-quiz] status → READY', {
+    console.log("[generate-chapter-quiz] status → READY", {
       courseId,
       chapterId,
       questionCount: quiz.questions.length,
     });
 
-    return { courseId, chapterId, status: 'READY', questionCount: quiz.questions.length };
+    return {
+      courseId,
+      chapterId,
+      status: "READY",
+      questionCount: quiz.questions.length,
+    };
   } catch (e: any) {
     const errorMessage = String(e?.message ?? e);
-    console.error('[generate-chapter-quiz] status → FAILED', {
+    console.error("[generate-chapter-quiz] status → FAILED", {
       courseId,
       chapterId,
       error: errorMessage,
@@ -112,11 +134,11 @@ export const handler = async (event: {
 
     try {
       await updateChapterQuizStatus(courseId, chapterId, {
-        status: 'FAILED',
+        status: "FAILED",
         errorMessage,
       });
     } catch (statusErr: any) {
-      console.error('[generate-chapter-quiz] could not write FAILED status', {
+      console.error("[generate-chapter-quiz] could not write FAILED status", {
         courseId,
         chapterId,
         statusError: String(statusErr?.message ?? statusErr),

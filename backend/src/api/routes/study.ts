@@ -1,16 +1,20 @@
-import { Hono } from 'hono';
-import { z } from 'zod';
+import { Hono } from "hono";
+import { z } from "zod";
 
-import { loadQuiz } from '../../storage/course-artifacts';
-import { evaluateAnswer } from '../../agents/answer-feedback';
+import { loadQuiz } from "../../storage/course-artifacts";
+import { evaluateAnswer } from "../../agents/answer-feedback";
 import {
   saveProgress,
   saveMistake,
   getChapterProgress,
-} from '../../storage/study-state';
-import { getCurrentUserId } from '../../auth/current-user';
-import { callCourseMetadata } from '../../courses/course-metadata-client';
-import { LambdaClient, InvokeCommand, InvocationType } from '@aws-sdk/client-lambda';
+} from "../../storage/study-state";
+import { getCurrentUserId } from "../../auth/current-user";
+import { callCourseMetadata } from "../../courses/course-metadata-client";
+import {
+  LambdaClient,
+  InvokeCommand,
+  InvocationType,
+} from "@aws-sdk/client-lambda";
 
 const lambda = new LambdaClient({});
 
@@ -47,7 +51,7 @@ const NextInput = z.object({
 export const study = new Hono();
 
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/\s+/g, ' ').trim();
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -57,14 +61,16 @@ function normalize(s: string): string {
  */
 function gradeMcqLocally(question: any, userAnswer: string) {
   const correctAnswer =
-    typeof question.answer === 'string' ? question.answer.trim() : '';
+    typeof question.answer === "string" ? question.answer.trim() : "";
   if (!correctAnswer) return null;
 
   // Sanity: the correct answer should be one of the choices.
   if (
     Array.isArray(question.choices) &&
     question.choices.length &&
-    !question.choices.some((c: string) => normalize(c) === normalize(correctAnswer))
+    !question.choices.some(
+      (c: string) => normalize(c) === normalize(correctAnswer),
+    )
   ) {
     return null;
   }
@@ -73,7 +79,7 @@ function gradeMcqLocally(question: any, userAnswer: string) {
 
   // Stored explanation is safe to reveal AFTER submission.
   const stored =
-    typeof question.explanation === 'string' ? question.explanation.trim() : '';
+    typeof question.explanation === "string" ? question.explanation.trim() : "";
 
   let explanation: string;
   if (stored) {
@@ -88,7 +94,7 @@ function gradeMcqLocally(question: any, userAnswer: string) {
 
   if (
     !correct &&
-    typeof question.misconception_target === 'string' &&
+    typeof question.misconception_target === "string" &&
     question.misconception_target.trim()
   ) {
     explanation += ` (Common mix-up: ${question.misconception_target.trim()})`;
@@ -102,14 +108,14 @@ function gradeMcqLocally(question: any, userAnswer: string) {
   };
 }
 
-study.post('/answer', async (c) => {
+study.post("/answer", async (c) => {
   const body = await c.req.json();
   const input = AnswerInput.parse(body);
 
   const userId = await getCurrentUserId(c);
 
   const ownership = await callCourseMetadata({
-    action: 'getForUser',
+    action: "getForUser",
     courseId: input.courseId,
     userId,
   });
@@ -117,8 +123,8 @@ study.post('/answer', async (c) => {
   if (!ownership.course) {
     return c.json(
       {
-        error: 'COURSE_NOT_FOUND',
-        message: 'Course not found or you do not have access.',
+        error: "COURSE_NOT_FOUND",
+        message: "Course not found or you do not have access.",
       },
       404,
     );
@@ -126,14 +132,12 @@ study.post('/answer', async (c) => {
 
   const quiz = await loadQuiz(input.courseId, input.chapterId);
 
-  const question = quiz.questions.find(
-    (q: any) => q.id === input.questionId,
-  );
+  const question = quiz.questions.find((q: any) => q.id === input.questionId);
 
   if (!question) {
     return c.json(
       {
-        error: 'QUESTION_NOT_FOUND',
+        error: "QUESTION_NOT_FOUND",
         message: `Question ${input.questionId} was not found.`,
       },
       404,
@@ -144,9 +148,10 @@ study.post('/answer', async (c) => {
   let aiUsed = false;
 
   // MCQ: grade locally (instant). Short-answer / open: AI grading.
-  let feedback = question.type === 'mcq'
-    ? gradeMcqLocally(question, input.userAnswer)
-    : null;
+  let feedback =
+    question.type === "mcq"
+      ? gradeMcqLocally(question, input.userAnswer)
+      : null;
 
   if (!feedback) {
     feedback = await evaluateAnswer({
@@ -161,7 +166,7 @@ study.post('/answer', async (c) => {
     aiUsed = true;
   }
 
-  console.log('[study/answer]', {
+  console.log("[study/answer]", {
     courseId: input.courseId,
     chapterId: input.chapterId,
     questionId: input.questionId,
@@ -196,7 +201,10 @@ study.post('/answer', async (c) => {
     try {
       await fireConsolidation(input.courseId, userId);
     } catch (e: any) {
-      console.error('[study/answer] consolidation trigger failed', String(e?.message ?? e));
+      console.error(
+        "[study/answer] consolidation trigger failed",
+        String(e?.message ?? e),
+      );
     }
   }
 
@@ -212,14 +220,14 @@ study.post('/answer', async (c) => {
   });
 });
 
-study.post('/next', async (c) => {
+study.post("/next", async (c) => {
   const body = await c.req.json();
   const input = NextInput.parse(body);
 
   const userId = await getCurrentUserId(c);
 
   const ownership = await callCourseMetadata({
-    action: 'getForUser',
+    action: "getForUser",
     courseId: input.courseId,
     userId,
   });
@@ -227,8 +235,8 @@ study.post('/next', async (c) => {
   if (!ownership.course) {
     return c.json(
       {
-        error: 'COURSE_NOT_FOUND',
-        message: 'Course not found or you do not have access.',
+        error: "COURSE_NOT_FOUND",
+        message: "Course not found or you do not have access.",
       },
       404,
     );
@@ -256,8 +264,8 @@ study.post('/next', async (c) => {
 
   if (!nextQuestion) {
     return c.json({
-      status: 'COMPLETED',
-      message: 'All questions in this chapter have been answered.',
+      status: "COMPLETED",
+      message: "All questions in this chapter have been answered.",
       courseId: input.courseId,
       chapterId: input.chapterId,
       // legacy fields kept for backward compatibility
@@ -276,11 +284,11 @@ study.post('/next', async (c) => {
 
   // Strip anything that reveals or justifies the answer before the learner answers.
   const {
-    answer,
-    source_quote,
-    source_chunk_id,
-    explanation,
-    misconception_target,
+    answer: _answer,
+    source_quote: _sourceQuote,
+    source_chunk_id: _sourceChunkId,
+    explanation: _explanation,
+    misconception_target: _misconceptionTarget,
     ...safeQuestion
   } = nextQuestion;
 
@@ -291,7 +299,7 @@ study.post('/next', async (c) => {
 
   return c.json({
     // status value unchanged ('NEXT_QUESTION') for backward compatibility
-    status: 'NEXT_QUESTION',
+    status: "NEXT_QUESTION",
     courseId: input.courseId,
     chapterId: input.chapterId,
     question: safeQuestion,

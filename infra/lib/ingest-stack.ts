@@ -49,6 +49,7 @@ interface Props extends cdk.StackProps {
   embeddingCacheTable: ddb.Table;
   analyticsTable: ddb.Table;
   usersTable: ddb.Table;
+  enableReservedConcurrency: boolean;
 }
 
 function lambdaLogGroup(scope: Construct, id: string) {
@@ -100,7 +101,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 512,
         timeout: cdk.Duration.seconds(120),
-        reservedConcurrentExecutions: 10,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 10
+          : undefined,
         logGroup: lambdaLogGroup(this, "EmbedTranscriptLogs"),
         environment: {
           RAW_BUCKET: props.rawBucket.bucketName,
@@ -127,7 +130,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 512,
         timeout: cdk.Duration.seconds(60),
-        reservedConcurrentExecutions: 10,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 10
+          : undefined,
         logGroup: lambdaLogGroup(this, "ProcessTranscriptLogs"),
         vpc: props.vpc,
         vpcSubnets: {
@@ -154,7 +159,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 512,
         timeout: cdk.Duration.seconds(30),
-        reservedConcurrentExecutions: 20,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 20
+          : undefined,
         logGroup: lambdaLogGroup(this, "SearchChunksLogs"),
         vpc: props.vpc,
         vpcSubnets: {
@@ -180,7 +187,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 512,
         timeout: cdk.Duration.seconds(30),
-        reservedConcurrentExecutions: 10,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 10
+          : undefined,
         logGroup: lambdaLogGroup(this, "CourseMetadataLogs"),
         vpc: props.vpc,
         vpcSubnets: {
@@ -203,7 +212,9 @@ export class IngestStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_24_X,
       memorySize: 256,
       timeout: cdk.Duration.minutes(5),
-      reservedConcurrentExecutions: 1,
+      reservedConcurrentExecutions: props.enableReservedConcurrency
+        ? 1
+        : undefined,
       logGroup: lambdaLogGroup(this, "MigrationLogs"),
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
@@ -242,7 +253,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 1024,
         timeout: cdk.Duration.minutes(5),
-        reservedConcurrentExecutions: 10,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 10
+          : undefined,
         retryAttempts: 2,
         maxEventAge: cdk.Duration.hours(2),
         onFailure: new destinations.SqsDestination(quizJobsDlq),
@@ -273,7 +286,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 1024,
         timeout: cdk.Duration.minutes(10),
-        reservedConcurrentExecutions: 3,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 3
+          : undefined,
         logGroup: lambdaLogGroup(this, "GenerateCourseLogs"),
         environment: {
           RAW_BUCKET: props.rawBucket.bucketName,
@@ -318,7 +333,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 1024,
         timeout: cdk.Duration.minutes(10),
-        reservedConcurrentExecutions: 3,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 3
+          : undefined,
         logGroup: lambdaLogGroup(this, "GenerateCourseFromPdfLogs"),
         environment: {
           RAW_BUCKET: props.rawBucket.bucketName,
@@ -366,7 +383,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 1024,
         timeout: cdk.Duration.minutes(5),
-        reservedConcurrentExecutions: 5,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 5
+          : undefined,
         logGroup: lambdaLogGroup(this, "GenerateRemediationLogs"),
         environment: {
           PROCESSED_BUCKET: props.processedBucket.bucketName,
@@ -425,7 +444,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 256,
         timeout: cdk.Duration.minutes(15),
-        reservedConcurrentExecutions: 3,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 3
+          : undefined,
         logGroup: lambdaLogGroup(this, "CourseJobWorkerLogs"),
         environment: {
           GENERATE_COURSE_FUNCTION_NAME: this.generateCourseFn.functionName,
@@ -460,7 +481,9 @@ export class IngestStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 256,
         timeout: cdk.Duration.minutes(2),
-        reservedConcurrentExecutions: 1,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 1
+          : undefined,
         logGroup: lambdaLogGroup(this, "StuckCourseRecoveryLogs"),
         environment: {
           COURSE_METADATA_FUNCTION_NAME: this.courseMetadataFn.functionName,

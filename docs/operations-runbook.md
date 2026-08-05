@@ -61,6 +61,13 @@ Lambda pool. Production always synthesizes RDS Proxy and must be deployed from
 an account plan that supports it. Set `ENABLE_RDS_PROXY=true` in a supported
 staging account to validate proxy behavior before production promotion.
 
+This account's Lambda concurrency quota is also too small to reserve capacity
+without violating AWS's minimum unreserved pool. Production always synthesizes
+the per-function reserved-concurrency caps. Constrained staging relies on API
+Gateway throttling, SQS event-source concurrency, and per-user quotas; set
+`ENABLE_RESERVED_CONCURRENCY=true` after raising the account quota to validate
+the production caps.
+
 ## Cost and abuse controls
 
 API Gateway enforces 25 requests/second with a burst of 50. The API additionally

@@ -42,6 +42,7 @@ interface Props extends cdk.StackProps {
   courseMetadataFn: lambda.IFunction;
   generateChapterQuizFn: lambda.IFunction;
   generateRemediationFn: lambda.IFunction;
+  enableReservedConcurrency: boolean;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -55,7 +56,9 @@ export class ApiStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_24_X,
       memorySize: 512,
       timeout: cdk.Duration.seconds(30),
-      reservedConcurrentExecutions: 20,
+      reservedConcurrentExecutions: props.enableReservedConcurrency
+        ? 20
+        : undefined,
       logGroup: new logs.LogGroup(this, "ApiFunctionLogs", {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -138,7 +141,9 @@ export class ApiStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         memorySize: 256,
         timeout: cdk.Duration.minutes(5),
-        reservedConcurrentExecutions: 1,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 1
+          : undefined,
         retryAttempts: 2,
         logGroup: new logs.LogGroup(this, "DailyReviewReminderLogs", {
           retention: logs.RetentionDays.ONE_MONTH,
@@ -177,7 +182,9 @@ export class ApiStack extends cdk.Stack {
         handler: "handler",
         runtime: lambda.Runtime.NODEJS_24_X,
         timeout: cdk.Duration.minutes(10),
-        reservedConcurrentExecutions: 1,
+        reservedConcurrentExecutions: props.enableReservedConcurrency
+          ? 1
+          : undefined,
         logGroup: new logs.LogGroup(this, "ReminderIndexBackfillLogs", {
           retention: logs.RetentionDays.ONE_MONTH,
           removalPolicy: cdk.RemovalPolicy.RETAIN,

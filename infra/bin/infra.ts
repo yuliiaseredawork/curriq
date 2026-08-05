@@ -24,6 +24,8 @@ const malwareProtectionEnabled =
   stage === "prod" || process.env.ENABLE_MALWARE_PROTECTION === "true";
 const rdsProxyEnabled =
   stage === "prod" || process.env.ENABLE_RDS_PROXY === "true";
+const reservedConcurrencyEnabled =
+  stage === "prod" || process.env.ENABLE_RESERVED_CONCURRENCY === "true";
 
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -56,6 +58,7 @@ const ingest = new IngestStack(app, `Curriq-Ingest-${stage}`, {
   embeddingCacheTable: data.embeddingCacheTable,
   analyticsTable: data.analyticsTable,
   usersTable: data.usersTable,
+  enableReservedConcurrency: reservedConcurrencyEnabled,
 });
 new ApiStack(app, `Curriq-Api-${stage}`, {
   env,
@@ -81,4 +84,5 @@ new ApiStack(app, `Curriq-Api-${stage}`, {
   courseMetadataFn: ingest.courseMetadataFn,
   generateChapterQuizFn: ingest.generateChapterQuizFn,
   generateRemediationFn: ingest.generateRemediationFn,
+  enableReservedConcurrency: reservedConcurrencyEnabled,
 });

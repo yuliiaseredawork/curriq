@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { DataStack } from "../lib/data-stack";
+import { DeliveryStack } from "../lib/delivery-stack";
 import { NetworkStack } from "../lib/network-stack";
 
 test("network has no bastion or public SSH ingress", () => {
@@ -81,5 +82,50 @@ test("uploads use restricted CORS, cleanup, malware scanning, and quota TTL", ()
         Match.objectLike({ IndexName: "byDueDate" }),
       ]),
     }),
+  );
+});
+
+test("GitHub delivery roles trust only the Curriq environments and use scoped policies", () => {
+  const app = new cdk.App();
+  const delivery = new DeliveryStack(app, "Delivery", {
+    githubOwner: "yuliiaseredawork",
+    githubRepository: "curriq",
+    githubOwnerId: "191797503",
+    githubRepositoryId: "1245110775",
+  });
+  const template = Template.fromStack(delivery);
+
+  template.hasResourceProperties("Custom::AWSCDKOpenIdConnectProvider", {
+    ClientIDList: ["sts.amazonaws.com"],
+    Url: "https://token.actions.githubusercontent.com",
+  });
+  template.hasResourceProperties(
+    "AWS::IAM::Role",
+    Match.objectLike({
+      RoleName: "Curriq-GitHub-Deploy",
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Condition: Match.objectLike({
+              StringEquals: Match.objectLike({
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                "token.actions.githubusercontent.com:repository_id":
+                  "1245110775",
+                "token.actions.githubusercontent.com:repository_owner_id":
+                  "191797503",
+                "token.actions.githubusercontent.com:sub": [
+                  "repo:yuliiaseredawork/curriq:environment:staging",
+                  "repo:yuliiaseredawork/curriq:environment:production",
+                ],
+              }),
+            }),
+          }),
+        ]),
+      }),
+    }),
+  );
+  template.hasResourceProperties(
+    "AWS::IAM::Role",
+    Match.objectLike({ RoleName: "Curriq-GitHub-Recovery" }),
   );
 });

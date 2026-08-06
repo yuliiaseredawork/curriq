@@ -23,8 +23,8 @@ jobs:
     environment: staging
     env:
       AWS_REGION: us-west-2
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       PROVIDER_SECRET_NAME: curriq/staging/providers
       STAGING_APP_URL: ${{ vars.STAGING_APP_URL }}
@@ -44,7 +44,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - id: previous
@@ -61,11 +61,11 @@ jobs:
       - name: Build staging frontend candidate
         run: |
           npx --yes vercel@56.5.0 pull --yes --environment=preview --token="$VERCEL_TOKEN" --cwd frontend
-          npx --yes vercel@56.5.0 build --token="$VERCEL_TOKEN" --cwd frontend
+          npx --yes vercel@56.5.0 build --output .vercel/output --token="$VERCEL_TOKEN" --cwd frontend
       - id: frontend
         name: Deploy staging frontend candidate
         run: |
-          candidate=$(npx --yes vercel@56.5.0 deploy --prebuilt --token="$VERCEL_TOKEN" --cwd frontend)
+          candidate=$(npx --yes vercel@56.5.0 deploy --prebuilt --archive=tgz --target=preview --token="$VERCEL_TOKEN")
           echo "url=${candidate}" >> "$GITHUB_OUTPUT"
       - name: Point staging domain at candidate
         run: npx --yes vercel@56.5.0 alias set "${{ steps.frontend.outputs.url }}" "${{ vars.STAGING_APP_DOMAIN }}" --token="$VERCEL_TOKEN"

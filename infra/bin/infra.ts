@@ -4,6 +4,7 @@ import { NetworkStack } from "../lib/network-stack";
 import { DataStack } from "../lib/data-stack";
 import { ApiStack } from "../lib/api-stack";
 import { IngestStack } from "../lib/ingest-stack";
+import { DeliveryStack } from "../lib/delivery-stack";
 
 const app = new cdk.App();
 
@@ -31,6 +32,14 @@ const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
   region: "us-west-2",
 };
+
+new DeliveryStack(app, "Curriq-Delivery", {
+  env,
+  githubOwner: "yuliiaseredawork",
+  githubRepository: "curriq",
+  githubOwnerId: "191797503",
+  githubRepositoryId: "1245110775",
+});
 
 const network = new NetworkStack(app, `Curriq-Network-${stage}`, {
   env,

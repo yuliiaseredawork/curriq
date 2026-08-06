@@ -23,8 +23,8 @@ jobs:
     environment: production
     env:
       AWS_REGION: us-west-2
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       PROVIDER_SECRET_NAME: curriq/prod/providers
       PROD_APP_URL: ${{ vars.PROD_APP_URL }}
@@ -46,7 +46,7 @@ jobs:
         run: pnpm run ci
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - id: previous
         name: Read last healthy production release
@@ -57,11 +57,11 @@ jobs:
       - name: Build immutable production frontend candidate
         run: |
           npx --yes vercel@56.5.0 pull --yes --environment=production --token="$VERCEL_TOKEN" --cwd frontend
-          npx --yes vercel@56.5.0 build --prod --token="$VERCEL_TOKEN" --cwd frontend
+          npx --yes vercel@56.5.0 build --output .vercel/output --prod --token="$VERCEL_TOKEN" --cwd frontend
       - id: frontend
         name: Deploy candidate without production traffic
         run: |
-          candidate=$(npx --yes vercel@56.5.0 deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN" --cwd frontend)
+          candidate=$(npx --yes vercel@56.5.0 deploy --prebuilt --archive=tgz --prod --skip-domain --token="$VERCEL_TOKEN")
           echo "url=${candidate}" >> "$GITHUB_OUTPUT"
       - name: Smoke the staged production frontend
         env:
